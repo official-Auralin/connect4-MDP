@@ -54,10 +54,13 @@ class GameData:
         """
         self.game_mode = mode
         if mode in ['pva', 'ava']:
+            # Create a new agent (it will train itself in the constructor)
             self.agent1 = DPAgent()
+                
         if mode == 'ava':
-            self.agent2 = DPAgent()
-            
+            # For agent vs agent, we'll use the same agent for both
+            self.agent2 = self.agent1
+
     def get_state_for_agent(self) -> Any:
         """
         Convert the current game state to a format suitable for the agent.
@@ -68,6 +71,7 @@ class GameData:
         return {
             'board': self.game_board.board,
             'turn': self.turn,
+            'game_board': self.game_board,  # Include the game board reference
             'last_move': (self.last_move_row[-1] if self.last_move_row else None,
                          self.last_move_col[-1] if self.last_move_col else None)
         }

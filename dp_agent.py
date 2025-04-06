@@ -5,8 +5,8 @@ import copy
 class DPAgent:
     """
     Dynamic Programming agent for Connect4.
-    Uses value iteration to compute optimal policy and maintains linear systems
-    for state transitions.
+    Uses policy iteration to compute the optimal policy by alternating between
+    policy evaluation and policy improvement until convergence.
     """
     
     def __init__(self, discount_factor: float = 0.9, epsilon: float = 0.01):
@@ -24,6 +24,11 @@ class DPAgent:
         self.values = {}  # State -> value mapping (V(s))
         self.policy = {}  # State -> action mapping
         self.linear_systems = {}  # State -> linear system mapping
+        
+        # Initialize and train the agent
+        self.reset()
+        self.policy_iteration()
+        print(f"Agent initialized and trained. Policy size: {len(self.policy)} states")
         
     def set_epsilon(self, epsilon: float) -> None:
         """
@@ -154,8 +159,20 @@ class DPAgent:
         Perform policy iteration to find the optimal policy.
         Alternates between policy evaluation and policy improvement until convergence.
         """
-        # TODO: Implement policy iteration
-        pass
+        # Initialize policy for all states if not already done
+        for state in self.states:
+            if state not in self.policy:
+                self._initialize_state(state)
+        
+        while True:
+            old_policy = self.policy.copy()
+            # Policy evaluation
+            self.policy_evaluation()
+            # Policy improvement
+            self.policy_extraction()
+            # Check for convergence
+            if old_policy == self.policy:
+                break
     
     # Connect4-specific methods
     def _get_state_representation(self, game_state: Any) -> str:
@@ -168,8 +185,20 @@ class DPAgent:
         Returns:
             str: A string representation of the board state
         """
-        # TODO: Implement board state to string conversion
-        pass
+        # Extract board and turn from game state
+        board = game_state['board']
+        turn = game_state['turn']
+        
+        # Convert the board to a string representation
+        # We'll use a column-major order to better represent how pieces fall
+        cols = []
+        for col in range(7):  # Connect4 board is 7 columns wide
+            column = ''.join(str(board[row][col]) for row in range(6))  # 6 rows high
+            cols.append(column)
+        
+        # Join columns with '|' separator and combine with turn
+        board_str = '|'.join(cols)
+        return f"{turn}:{board_str}"
     
     def _get_valid_actions(self, game_state: Any) -> List[int]:
         """
@@ -219,11 +248,15 @@ class DPAgent:
         Returns:
             float: Reward value (+1 for win, -1 for loss, 0 for draw/ongoing)
         """
+        # If game_board is not in the state, we can't determine the reward
+        if 'game_board' not in game_state or game_state['game_board'] is None:
+            return 0.0
+            
         board = game_state['board']
         current_player = game_state['turn'] + 1  # Player 1 or 2
+        last_player = 3 - current_player  # Previous player
         
         # Use game's built-in win checking for the previous player
-        last_player = 3 - current_player  # Previous player
         if game_state['game_board'].winning_move(last_player):
             return -1.0 if last_player == current_player else 1.0
             
@@ -272,6 +305,23 @@ class DPAgent:
         Returns:
             Dict: Game state dictionary with board and turn information
         """
-        # TODO: Implement conversion from state string to game state
-        # This should be the inverse of _get_state_representation
-        pass 
+        # Split turn and board string
+        turn_str, board_str = state.split(':')
+        turn = int(turn_str)
+        
+        # Split board string into columns
+        cols = board_str.split('|')
+        
+        # Initialize empty board
+        board = [[0 for _ in range(7)] for _ in range(6)]
+        
+        # Fill board from column strings
+        for col_idx, col_str in enumerate(cols):
+            for row_idx, cell in enumerate(col_str):
+                board[row_idx][col_idx] = int(cell)
+        
+        return {
+            'board': board,
+            'turn': turn,
+            'game_board': None  # Game board reference is handled by the game
+        } 
