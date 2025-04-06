@@ -48,16 +48,16 @@ class GameRenderer:
         self.label = self.myfont.render("CONNECT FOUR!!", 1, WHITE)
         screen.blit(self.label, (40, 10))
         self.screen = screen
-        self.stats = {}
         self.game_data = game_data
+        self.stats = {}
 
         pygame.display.set_caption("Connect Four | Mayank Singh")
         pygame.display.update()
 
     def draw_stats_panel(self, stats):
-        import game_data  # To use STATS_PANEL_WIDTH
+        import game_data
         font = pygame.font.SysFont(None, 24)
-        x_offset = self.game_data.width - self.game_data.STATS_PANEL_WIDTH + 20
+        x_offset = self.game_data.width - self.game_data.panel_size+ 20
         y = 20
 
         def render_line(label, value):
