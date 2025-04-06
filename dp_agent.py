@@ -123,8 +123,31 @@ class DPAgent:
         Extract the optimal policy from the current value function.
         Uses one-step lookahead to find the best action for each state.
         """
-        # TODO: Implement policy extraction
-        pass
+        for state in self.states:
+            best_action = None
+            best_value = float('-inf')
+            current_game_state = self._state_to_game_state(state)
+            valid_actions = self._get_valid_actions(current_game_state)
+            
+            if not valid_actions:  # No valid actions available
+                continue
+                
+            for action in valid_actions:
+                successor_state = self._get_next_state(current_game_state, action)
+                if successor_state is None:
+                    continue
+                    
+                reward = self._get_reward(successor_state)
+                successor_state_str = self._get_state_representation(successor_state)
+                successor_value = self.values.get(successor_state_str, self.V0)
+                value = reward + self.gamma * successor_value
+                
+                if value > best_value:
+                    best_value = value
+                    best_action = action
+                    
+            if best_action is not None:
+                self.policy[state] = best_action
     
     def policy_iteration(self) -> None:
         """
