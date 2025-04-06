@@ -32,9 +32,9 @@ class GameData:
         self.last_move_col = []
         self.game_board = GameBoard()
         self.action = None
-
+        self.panel_size = 400
         self.sq_size: int = 100
-        self.width: int = 7 * self.sq_size
+        self.width: int = 7 * self.sq_size + self.panel_size
         self.height: int = 7 * self.sq_size
         self.size: Tuple[int, int] = (self.width, self.height)
         self.radius: int = int(self.sq_size / 2 - 5)
