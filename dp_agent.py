@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Tuple
 import numpy as np
+import copy
 
 class DPAgent:
     """
@@ -42,18 +43,6 @@ class DPAgent:
         """
         self.gamma = discount_factor
         
-    def set_learning_rate(self, learning_rate: float) -> None:
-        """
-        Set the learning rate for value updates.
-        Note: This is currently a placeholder for future implementations
-        that might use learning rates.
-        
-        Args:
-            learning_rate: The new learning rate
-        """
-        # TODO: Implement learning rate functionality if needed
-        pass
-    
     def _initialize_state(self, state: str) -> None:
         """
         Initialize a new state with default values and policy.
@@ -97,21 +86,37 @@ class DPAgent:
         self.policy = {}
         self.linear_systems = {}
     
-    def value_iteration(self) -> None:
-        """
-        Perform value iteration to compute the optimal value function and policy.
-        Also computes and stores linear systems for each state.
-        """
-        # TODO: Implement value iteration algorithm
-        pass
-    
     def policy_evaluation(self) -> None:
         """
         Evaluate the current policy by computing V(s) for all states.
-        Uses iterative policy evaluation algorithm.
+        Uses iterative policy evaluation algorithm with synchronous updates.
         """
-        # TODO: Implement policy evaluation
-        pass
+        while True:
+            delta = 0
+            # Make a copy of all values to use for this iteration
+            old_values = self.values.copy()
+            
+            # Update each state's value using OLD values
+            for state in self.states:
+                if self.policy[state] is None:
+                    continue
+                
+                # Get next state and reward using our granular functions
+                game_state = self._state_to_game_state(state)
+                action = self.policy[state]
+                next_game_state = self._get_next_state(game_state, action)
+                reward = self._get_reward(next_game_state)
+                next_state = self._get_state_representation(next_game_state)
+                
+                # Update value using Bellman equation and OLD values
+                self.values[state] = reward + self.gamma * old_values.get(next_state, self.V0)
+                
+                # Track maximum change
+                delta = max(delta, abs(old_values[state] - self.values[state]))
+            
+            # Check for convergence
+            if delta < self.epsilon:
+                break
     
     def policy_extraction(self) -> None:
         """
@@ -153,8 +158,8 @@ class DPAgent:
         Returns:
             List[int]: List of valid column indices (0-6)
         """
-        # TODO: Implement valid moves check
-        pass
+        board = game_state['board']
+        return [col for col in range(7) if board[5][col] == 0]  # Check top row
     
     def _get_next_state(self, game_state: Any, action: int) -> Any:
         """
@@ -167,8 +172,19 @@ class DPAgent:
         Returns:
             Any: The resulting board state after placing the piece
         """
-        # TODO: Implement move simulation
-        pass
+        # Create a deep copy of the board to simulate the move
+        next_state = copy.deepcopy(game_state)
+        board = next_state['board']
+        
+        # Find the next open row in the chosen column
+        for row in range(6):  # Connect4 board is 6x7
+            if board[row][action] == 0:  # Empty spot
+                board[row][action] = next_state['turn'] + 1  # Player 1 or 2
+                break
+                
+        # Update turn
+        next_state['turn'] = (next_state['turn'] + 1) % 2
+        return next_state
     
     def _get_reward(self, game_state: Any) -> float:
         """
@@ -180,8 +196,19 @@ class DPAgent:
         Returns:
             float: Reward value (+1 for win, -1 for loss, 0 for draw/ongoing)
         """
-        # TODO: Implement reward calculation
-        pass
+        board = game_state['board']
+        current_player = game_state['turn'] + 1  # Player 1 or 2
+        
+        # Use game's built-in win checking for the previous player
+        last_player = 3 - current_player  # Previous player
+        if game_state['game_board'].winning_move(last_player):
+            return -1.0 if last_player == current_player else 1.0
+            
+        # Check for draw (full board)
+        if game_state['game_board'].tie_move():
+            return 0.0
+            
+        return 0.0  # Non-terminal state
     
     # Linear system methods
     def _compute_linear_system(self, state: str) -> np.ndarray:
@@ -210,4 +237,18 @@ class DPAgent:
         """
         if state not in self.linear_systems:
             self.linear_systems[state] = self._compute_linear_system(state)
-        return self.linear_systems[state] 
+        return self.linear_systems[state]
+    
+    def _state_to_game_state(self, state: str) -> Dict:
+        """
+        Convert state string representation back to game state dictionary.
+        
+        Args:
+            state: String representation of state
+            
+        Returns:
+            Dict: Game state dictionary with board and turn information
+        """
+        # TODO: Implement conversion from state string to game state
+        # This should be the inverse of _get_state_representation
+        pass 
