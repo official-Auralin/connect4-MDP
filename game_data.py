@@ -1,6 +1,7 @@
-from typing import Tuple
+from typing import Tuple, Optional, Any
 
 from game_board import GameBoard
+from dp_agent import DPAgent
 
 
 class GameData:
@@ -18,6 +19,11 @@ class GameData:
     last_move_row: [int]
     last_move_col: [int]
     game_board: GameBoard
+    
+    # Agent-related fields
+    game_mode: str  # 'pvp', 'pva', 'ava'
+    agent1: Optional[DPAgent]
+    agent2: Optional[DPAgent]
 
     def __init__(self):
         self.game_over = False
@@ -32,3 +38,36 @@ class GameData:
         self.height: int = 7 * self.sq_size
         self.size: Tuple[int, int] = (self.width, self.height)
         self.radius: int = int(self.sq_size / 2 - 5)
+        
+        # Initialize agent-related fields
+        self.game_mode = 'pvp'  # Default to player vs player
+        self.agent1 = None
+        self.agent2 = None
+
+    def set_game_mode(self, mode: str) -> None:
+        """
+        Set the game mode and initialize agents if needed.
+        
+        Args:
+            mode: 'pvp' for player vs player, 'pva' for player vs agent,
+                 'ava' for agent vs agent
+        """
+        self.game_mode = mode
+        if mode in ['pva', 'ava']:
+            self.agent1 = DPAgent()
+        if mode == 'ava':
+            self.agent2 = DPAgent()
+            
+    def get_state_for_agent(self) -> Any:
+        """
+        Convert the current game state to a format suitable for the agent.
+        
+        Returns:
+            Any: The game state in agent-readable format
+        """
+        return {
+            'board': self.game_board.board,
+            'turn': self.turn,
+            'last_move': (self.last_move_row[-1] if self.last_move_row else None,
+                         self.last_move_col[-1] if self.last_move_col else None)
+        }
