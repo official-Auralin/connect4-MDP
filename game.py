@@ -36,8 +36,6 @@ def start(mode: str = 'pvp'):
             if event.type == pygame.MOUSEMOTION:
                 bus.emit("mouse:hover", game.renderer, MouseHoverEvent(event.pos[0]))
 
-            pygame.display.update()
-
             if event.type == pygame.MOUSEBUTTONDOWN:
                 bus.emit("mouse:click", game, MouseClickEvent(event.pos[0]))
 
@@ -46,9 +44,11 @@ def start(mode: str = 'pvp'):
                     mods: int = pygame.key.get_mods()
                     if mods & pygame.KMOD_CTRL:
                         bus.emit("game:undo", game)
-
-            game.update()
-            game.draw()
+        
+        # Update game state regardless of events
+        game.update()
+        game.draw()
+        pygame.display.update()
 
 
 def text_objects(text, font, color):
