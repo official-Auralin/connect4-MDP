@@ -33,8 +33,10 @@ class GameData:
         self.game_board = GameBoard()
         self.action = None
 
+        self.STATS_PANEL_WIDTH = 400
+
         self.sq_size: int = 100
-        self.width: int = 7 * self.sq_size
+        self.width: int = 7 * self.sq_size + self.STATS_PANEL_WIDTH
         self.height: int = 7 * self.sq_size
         self.size: Tuple[int, int] = (self.width, self.height)
         self.radius: int = int(self.sq_size / 2 - 5)

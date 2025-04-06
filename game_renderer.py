@@ -48,10 +48,35 @@ class GameRenderer:
         self.label = self.myfont.render("CONNECT FOUR!!", 1, WHITE)
         screen.blit(self.label, (40, 10))
         self.screen = screen
+        self.stats = {}
         self.game_data = game_data
 
         pygame.display.set_caption("Connect Four | Mayank Singh")
         pygame.display.update()
+
+    def draw_stats_panel(self, stats):
+        import game_data  # To use STATS_PANEL_WIDTH
+        font = pygame.font.SysFont(None, 24)
+        x_offset = self.game_data.width - self.game_data.STATS_PANEL_WIDTH + 20
+        y = 20
+
+        def render_line(label, value):
+            nonlocal y
+            text_surface = font.render(f"{label}: {value}", True, (255, 255, 255))
+            self.screen.blit(text_surface, (x_offset, y))
+            y += 28
+
+        render_line("State ID", stats.get("state_id", "-"))
+        render_line("Action", stats.get("action", "-"))
+        render_line("Reward", stats.get("reward", "-"))
+
+        V = stats.get("V", [])
+        if V:
+            render_line("V[:5]", ", ".join(f"{v:.2f}" for v in V[:5]))
+
+        eigenvalues = stats.get("eigenvalues", [])
+        if eigenvalues:
+            render_line("λ[0]", f"{eigenvalues[0]:.4f}")
 
     @bus.on("mouse:hover")
     def on_mouse_move(self, event: MouseHoverEvent):
@@ -213,5 +238,5 @@ class GameRenderer:
                     self.draw_yellow_coin(
                         int(c * sq_size) + 5, height - int(r * sq_size + sq_size - 5)
                     )
-
+        self.draw_stats_panel(self.stats)
         pygame.display.update()
