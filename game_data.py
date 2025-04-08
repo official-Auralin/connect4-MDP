@@ -50,12 +50,18 @@ class GameData:
         
         Args:
             mode: 'pvp' for player vs player, 'pva' for player vs agent,
-                 'ava' for agent vs agent
+            'ava' for agent vs agent
         """
         self.game_mode = mode
         if mode in ['pva', 'ava']:
-            # Create a new agent (it will train itself in the constructor)
-            self.agent1 = DPAgent()
+            # Create a new agent - no pre-training needed since it uses online learning
+            if self.agent1 is None:
+                print("Initializing agent...")
+                self.agent1 = DPAgent()
+            else:
+                # Reset the agent for a new game but preserve its learned values
+                print("Resetting agent for new game...")
+                self.agent1.reset()
                 
         if mode == 'ava':
             # For agent vs agent, we'll use the same agent for both
@@ -72,6 +78,6 @@ class GameData:
             'board': self.game_board.board,
             'turn': self.turn,
             'game_board': self.game_board,  # Include the game board reference
-            'last_move': (self.last_move_row[-1] if self.last_move_row else None,
-                         self.last_move_col[-1] if self.last_move_col else None)
+            'last_move': (self.last_move_row[-1] if self.last_move_row else None, 
+                          self.last_move_col[-1] if self.last_move_col else None)
         }
