@@ -55,7 +55,11 @@ class ConnectGame:
             self.print_board()
             
             if self.game_data.game_board.winning_move(self.game_data.turn + 1):
-                bus.emit("game:over", self.renderer, GameOver(False, self.game_data.turn + 1))
+                # Determine winning player and update agent reward if needed
+                winning_player = self.game_data.turn + 1
+                self.update_agent_reward(winning_player)
+                
+                bus.emit("game:over", self.renderer, GameOver(False, winning_player))
                 self.game_data.game_over = True
                 
             pygame.display.update()
@@ -63,6 +67,34 @@ class ConnectGame:
             self.game_data.turn = self.game_data.turn % 2
             return True
         return False
+        
+    def update_agent_reward(self, winning_player=None):
+        """
+        Update agent with reward based on game outcome.
+        
+        Args:
+            winning_player: The player who won (1 or 2), or None if tie
+        """
+        if self.game_data.game_mode not in ['pva', 'ava']:
+            return
+            
+        game_state = self.game_data.get_state_for_agent()
+        
+        # Determine reward based on outcome
+        if winning_player is None:  # Tie
+            reward = 0.0
+            print("Game ended in a tie. Agent reward: 0.0")
+        elif (winning_player == 2 and self.game_data.game_mode == 'pva') or \
+             (self.game_data.game_mode == 'ava'):  # Agent win
+            reward = 10.0
+            print("Agent won! Reward: 10.0")
+        else:  # Agent loss
+            reward = -10.0
+            print("Agent lost. Reward: -10.0")
+            
+        # Update agent with final reward
+        if self.game_data.agent1:
+            self.game_data.agent1.update(game_state, reward)
         
     @bus.on("mouse:click")
     def mouse_click(self, event: MouseClickEvent):
@@ -102,6 +134,9 @@ class ConnectGame:
         Checks the game state, dispatching events as needed.
         """
         if self.game_data.game_board.tie_move():
+            # Update agent with tie reward
+            self.update_agent_reward(None)
+            
             bus.emit("game:over", self.renderer, GameOver(was_tie=True))
             self.game_data.game_over = True
             
@@ -111,7 +146,17 @@ class ConnectGame:
         if self.game_data.game_over:
             print(os.getpid())
             pygame.time.wait(1000)
-            os.system("game.py")
+            
+            # Use the correct path to the game.py file
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            game_path = os.path.join(script_dir, "game.py")
+            
+            # Use python to run the game script
+            if os.path.exists(game_path):
+                os.system(f"python {game_path}")
+            else:
+                print(f"Error: Could not find {game_path}")
+                print(f"Current directory: {os.getcwd()}")
 
     def draw(self):
         """
