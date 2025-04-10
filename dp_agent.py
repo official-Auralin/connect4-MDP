@@ -1387,7 +1387,64 @@ class DPAgent:
         # This method can be implemented later for linear system analysis
         pass
         
-    def get_linear_system(self, state: GameState) -> np.ndarray:
-        """Get the linear system for a state."""
-        # This method can be implemented later for linear system analysis
-        return np.zeros((1, 1)) 
+    def get_linear_system(self, state: GameState):
+    """Get the linear system for a state."""
+    # This method can be implemented later for linear system analysis
+    """actions = state.get_valid_actions()
+    n = len(actions)
+    vn = len(self.values) + 1
+    coeffs = np.zeros((n,vn))
+    reward = self._get_reward(state)
+
+
+    for i in range(n):
+        coeffs[i, i] = 1.0
+
+
+        next_state = state.apply_action(i)
+
+        # Terminal check and reward
+        if next_state.is_terminal():
+            coeffs[i, -1] = reward
+        else:
+            state_ind = {state: val for val,state in enumerate(self.values.keys())}
+            if next_state in state_ind:
+                coeffs[i, state_ind[next_state]] = self.gamma
+                coeffs[i,-1] = reward
+    print(f"\nCoefficients (7x2):\n{coeffs}\n")
+    return coeffs"""
+
+    actions = state.get_valid_actions()
+    n = len(actions)
+
+    # Map all known states to a unique index
+    state_ind = {s: idx for idx, s in enumerate(self.values.keys())}
+    vn = len(state_ind) + 1  # one extra for current `state` if it's not in `values`
+
+    # Ensure current state has an index
+    if state not in state_ind:
+        state_ind[state] = len(state_ind)
+
+    coeffs = np.zeros((7, vn + 1))  # 7 actions, +1 column for constant (reward)
+
+    for i,action in enumerate(actions):
+        if action not in actions:
+            continue
+
+        next_state = state.apply_action(action)
+        row = action  # each action maps to one row
+
+        # V(current state) = 1.0
+        coeffs[row, state_ind[state]] = 1.0
+
+        if next_state.is_terminal():
+            reward = self._get_reward(next_state)
+            coeffs[row, -1] = reward
+        else:
+            if next_state not in state_ind:
+                state_ind[next_state] = len(state_ind)
+            coeffs[row, state_ind[next_state]] = -self.gamma
+            coeffs[row, -1] = self._get_reward(state)
+
+    print(f"\nLinear System Coefficients (7 x {vn + 1}):\n{coeffs}\n")
+    return coeffs
