@@ -6,6 +6,11 @@ import time
 import math
 from game_board import GameBoard
 
+# TODO: figure out why the game is not printing a linear system for Player 1
+# TODO: modify game board to have a size setting and a win condition setting e.g., 4x3 and 3 in a row
+# TODO: add an initial state setting, so we can test the agent in terminal and near terminal states with fewer available moves
+# TODO: figure out if the recursive nature of the bellman equation is supposed to reduce to a smaller system for each turn.
+
 class GameState:
     """
     A wrapper class for game states that supports hashing and comparison.
