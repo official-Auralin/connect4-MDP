@@ -41,10 +41,14 @@ class GameBoard:
 
     def is_valid_location(self, col):
         """
-        Returns whether the position exists on the board.
+        Returns whether the position exists on the board and is a valid drop location.
         :param col: The column to check.
-        :return: Whether the specified column exists on the board.
+        :return: Whether the specified column exists and is not full.
         """
+        # First check if column is in bounds
+        if col < 0 or col >= self.cols:
+            return False
+        # Then check if the top spot is empty
         return self.board[self.rows - 1][col] == 0
 
     def get_next_open_row(self, col):

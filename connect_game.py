@@ -1,6 +1,7 @@
 import math
 import os
 import sys
+import random
 
 import pygame
 
@@ -109,7 +110,10 @@ class ConnectGame:
         )
         
         col = int(math.floor(event.posx / self.game_data.sq_size))
-        self.make_move(col)
+        # Add bounds checking to ensure column is valid (0-6)
+        if 0 <= col < self.game_data.game_board.cols:
+            self.make_move(col)
+        # If col is outside valid range, ignore the click
         
     def handle_agent_move(self) -> None:
         """
@@ -127,8 +131,18 @@ class ConnectGame:
         if current_agent:
             game_state = self.game_data.get_state_for_agent()
             col = current_agent.choose_action(game_state)
-            self.make_move(col)
-            
+            # Validate column before making move
+            if 0 <= col < self.game_data.game_board.cols:
+                self.make_move(col)
+            else:
+                print(f"Agent tried to make an invalid move: column {col}")
+                # Choose a random valid column instead
+                valid_cols = [c for c in range(self.game_data.game_board.cols) 
+                             if self.game_data.game_board.is_valid_location(c)]
+                if valid_cols:
+                    col = random.choice(valid_cols)
+                    self.make_move(col)
+
     def update(self):
         """
         Checks the game state, dispatching events as needed.
