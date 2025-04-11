@@ -9,7 +9,9 @@ from game_board import GameBoard
 # TODO: figure out why the game is not printing a linear system for Player 1
 # TODO: modify game board to have a size setting and a win condition setting e.g., 4x3 and 3 in a row
 # TODO: add an initial state setting, so we can test the agent in terminal and near terminal states with fewer available moves
-# TODO: figure out if the recursive nature of the bellman equation is supposed to reduce to a smaller system for each turn.
+# TODO: figure out if the recursive nature of the bellman equation is supposed to reduce to a smaller system for each turn. (what we have seems correct)
+# TODO: fill compute_bellman_equation with the correct equations, currently just returns a placeholder - this will let us see the linear systems for the 7 available moves. 
+# TODO: imshow in matplotlib can be used to visualize the board takes in a numpy array and displays it as a grid, will pull up a secondary GUI. 
 
 class GameState:
     """
