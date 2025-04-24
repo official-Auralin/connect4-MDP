@@ -33,7 +33,9 @@ class GameState:
         
         # Create a new GameBoard if none provided
         if game_board is None:
-            self.game_board = GameBoard()
+            # Get board dimensions from the array
+            rows, cols = board.shape
+            self.game_board = GameBoard(rows=rows, cols=cols)
             self.game_board.board = board.copy()
         else:
             self.game_board = game_board
@@ -69,7 +71,8 @@ class GameState:
         
     def get_valid_actions(self) -> List[int]:
         """Get valid actions (columns) for this state."""
-        return [col for col in range(7) if self.game_board.is_valid_location(col)]
+        # Use game_board's columns count instead of hardcoded 7
+        return [col for col in range(self.game_board.cols) if self.game_board.is_valid_location(col)]
     
     def apply_action(self, action: int) -> 'GameState':
         """
@@ -83,7 +86,11 @@ class GameState:
         """
         # Create a new game board for the next state
         new_board = self.board.copy()
-        new_game_board = GameBoard()
+        
+        # Create a new game board object with the same dimensions and win condition
+        rows, cols = self.board.shape
+        win_condition = getattr(self.game_board, 'win_condition', 4)  # Default to 4 if not available
+        new_game_board = GameBoard(rows=rows, cols=cols, win_condition=win_condition)
         new_game_board.board = new_board
         
         # Find the next open row in the chosen column
@@ -102,8 +109,9 @@ class GameState:
         """
         # Convert the board to a string representation
         cols = []
-        for col in range(7):
-            column = ''.join(str(int(self.board[row][col])) for row in range(6))
+        num_rows, num_cols = self.board.shape
+        for col in range(num_cols):
+            column = ''.join(str(int(self.board[row][col])) for row in range(num_rows))
             cols.append(column)
         
         # Join columns with '|' separator and combine with turn
@@ -120,16 +128,19 @@ class GameState:
             List[int]: List of columns where the player can win immediately
         """
         winning_moves = []
+        board = self.board
+        num_rows, num_cols = board.shape
+        win_condition = self.game_board.win_condition
         
         # Check each column
-        for col in range(7):
+        for col in range(num_cols):
             # Skip if column is full
             if not self.game_board.is_valid_location(col):
                 continue
                 
-            # Create a temporary board
-            temp_board = self.board.copy()
-            temp_game_board = GameBoard()
+            # Create a temporary board with correct dimensions and win condition
+            temp_board = board.copy()
+            temp_game_board = GameBoard(rows=num_rows, cols=num_cols, win_condition=win_condition)
             temp_game_board.board = temp_board
             
             # Find the next open row in this column
@@ -157,33 +168,38 @@ class GameState:
         """
         trap_moves = []
         opponent = 3 - player
+        board = self.board
+        num_rows, num_cols = board.shape
+        win_condition = self.game_board.win_condition  # Get win condition from game board
         
         # Special handling for early game center control
-        empty_count = np.count_nonzero(self.board == 0)
-        is_early_game = empty_count > 35  # First few moves
+        empty_count = np.count_nonzero(board == 0)
+        total_slots = num_rows * num_cols
+        is_early_game = empty_count > total_slots * 0.8  # First few moves (80% empty)
         
         # In early game, prioritize center and adjacent columns
         if is_early_game:
-            # If center is available, it's highly valuable
-            if self.game_board.is_valid_location(3):
-                if 3 not in trap_moves:
-                    trap_moves.append(3)
+            # Center column is highly valuable
+            center_col = num_cols // 2
+            if self.game_board.is_valid_location(center_col):
+                if center_col not in trap_moves:
+                    trap_moves.append(center_col)
             
             # If opponent has center, control adjacent columns
-            if self.board[0][3] == opponent:
-                for col in [2, 4]:
-                    if self.game_board.is_valid_location(col) and col not in trap_moves:
+            if center_col < num_cols and board[0][center_col] == opponent:
+                for col in [center_col-1, center_col+1]:
+                    if 0 <= col < num_cols and self.game_board.is_valid_location(col) and col not in trap_moves:
                         trap_moves.append(col)
         
         # Find moves that create TWO threats simultaneously (true forks)
-        for col in range(7):
+        for col in range(num_cols):
             if not self.game_board.is_valid_location(col):
                 continue
                 
             # Simulate placing a piece in this column
             row = self.game_board.get_next_open_row(col)
-            temp_board = self.board.copy()
-            temp_game_board = GameBoard()
+            temp_board = board.copy()
+            temp_game_board = GameBoard(rows=num_rows, cols=num_cols, win_condition=win_condition)
             temp_game_board.board = temp_board
             temp_board[row][col] = player
             
@@ -191,77 +207,38 @@ class GameState:
             threats = 0
             
             # Check horizontal threats
-            for c in range(max(0, col-3), min(col+1, 4)):
-                window = [temp_board[row][c+i] for i in range(4)]
-                if window.count(player) == 3 and window.count(0) == 1:
-                    threats += 1
+            for c in range(max(0, col-(win_condition-1)), min(col+1, num_cols-(win_condition-1))):
+                if c + win_condition <= num_cols:
+                    window = [temp_board[row][c+i] for i in range(win_condition)]
+                    if window.count(player) == win_condition - 1 and window.count(0) == 1:
+                        threats += 1
                     
             # Check vertical threats
-            if row >= 3:
-                window = [temp_board[row-i][col] for i in range(4)]
-                if window.count(player) == 3 and window.count(0) == 1:
+            if row >= win_condition - 1:
+                window = [temp_board[row-i][col] for i in range(win_condition)]
+                if window.count(player) == win_condition - 1 and window.count(0) == 1:
                     threats += 1
                     
             # Check diagonal threats
-            for i in range(4):
+            for i in range(win_condition):
                 # Positive diagonal
                 r = row - i
                 c = col - i
-                if 0 <= r <= 2 and 0 <= c <= 3:
-                    window = [temp_board[r+j][c+j] for j in range(4)]
-                    if window.count(player) == 3 and window.count(0) == 1:
+                if r >= 0 and r <= num_rows - win_condition and c >= 0 and c <= num_cols - win_condition:
+                    window = [temp_board[r+j][c+j] for j in range(win_condition)]
+                    if window.count(player) == win_condition - 1 and window.count(0) == 1:
                         threats += 1
                 
                 # Negative diagonal
                 r = row - i
                 c = col + i
-                if 0 <= r <= 2 and 3 <= c <= 6:
-                    window = [temp_board[r+j][c-j] for j in range(4)]
-                    if window.count(player) == 3 and window.count(0) == 1:
-                        threats += 1
+                if r >= 0 and r <= num_rows - win_condition and c >= win_condition - 1 and c < num_cols:
+                    if all(0 <= r+j < num_rows and 0 <= c-j < num_cols for j in range(win_condition)):
+                        window = [temp_board[r+j][c-j] for j in range(win_condition)]
+                        if window.count(player) == win_condition - 1 and window.count(0) == 1:
+                            threats += 1
             
             # Only consider as trap if it creates MULTIPLE threats
-            if threats >= 2 and col not in trap_moves:
-                trap_moves.append(col)
-        
-        # Check for "staircase" pattern - a proven strong Connect Four trap
-        for col in range(1, 5):  # Need space for a 4-wide pattern
-            for row in range(1, 6):  # Need at least 2 rows
-                if (row-1 >= 0 and col+2 < 7 and
-                    self.board[row][col] == player and
-                    self.board[row-1][col+1] == player and
-                    self.board[row-1][col+2] == 0):
-                    
-                    # Completing the staircase
-                    if self.game_board.is_valid_location(col+2) and col+2 not in trap_moves:
-                        trap_moves.append(col+2)
-        
-        # Check for opponent's imminent trap too (nearly complete forks)
-        for col in range(7):
-            if not self.game_board.is_valid_location(col):
-                continue
-                
-            # Simulate opponent placing here
-            row = self.game_board.get_next_open_row(col)
-            temp_board = self.board.copy()
-            temp_game_board = GameBoard()
-            temp_game_board.board = temp_board
-            temp_board[row][col] = opponent
-            
-            # Count threats for opponent
-            threats = 0
-            
-            # Similar checks as above but for opponent
-            # Check horizontals
-            for c in range(max(0, col-3), min(col+1, 4)):
-                window = [temp_board[row][c+i] for i in range(4)]
-                if window.count(opponent) == 3 and window.count(0) == 1:
-                    threats += 1
-                    
-            # Check verticals and diagonals...
-            # Similar code as above
-            
-            # If opponent would create multiple threats, we should block
             if threats >= 2 and col not in trap_moves:
                 trap_moves.append(col)
                 
@@ -278,14 +255,16 @@ class GameState:
             int: Score representing strength of diagonal connections
         """
         board = self.board
+        num_rows, num_cols = board.shape
         score = 0
         opponent = 3 - player
+        win_condition = self.game_board.win_condition
         
         # Check all possible diagonal directions
         # Positive diagonals (/)
-        for row in range(3):
-            for col in range(4):
-                window = [board[row+i][col+i] for i in range(4)]
+        for row in range(num_rows - (win_condition - 1)):
+            for col in range(num_cols - (win_condition - 1)):
+                window = [board[row+i][col+i] for i in range(win_condition)]
                 # Give points for our pieces, subtract for opponent pieces
                 player_count = window.count(player)
                 opponent_count = window.count(opponent)
@@ -293,24 +272,24 @@ class GameState:
                 
                 # Only consider if there are no opponent pieces (can't win otherwise)
                 if opponent_count == 0:
-                    if player_count == 3 and empty_count == 1:
+                    if player_count == win_condition - 1 and empty_count == 1:
                         score += 5  # Near win
-                    elif player_count == 2 and empty_count == 2:
+                    elif player_count == win_condition - 2 and empty_count == 2:
                         score += 2  # Building threat
-                    elif player_count == 1 and empty_count == 3:
+                    elif player_count == 1 and empty_count == win_condition - 1:
                         score += 0.5  # Starting position
                 
                 # Also check opponent's diagonal threats
                 if player_count == 0:
-                    if opponent_count == 3 and empty_count == 1:
+                    if opponent_count == win_condition - 1 and empty_count == 1:
                         score -= 6  # Near loss - weigh higher than our threats
-                    elif opponent_count == 2 and empty_count == 2:
+                    elif opponent_count == win_condition - 2 and empty_count == 2:
                         score -= 3  # Opponent building threat
         
         # Negative diagonals (\)
-        for row in range(3):
-            for col in range(3, 7):
-                window = [board[row+i][col-i] for i in range(4)]
+        for row in range(win_condition - 1, num_rows):
+            for col in range(num_cols - (win_condition - 1)):
+                window = [board[row-i][col+i] for i in range(win_condition)]
                 # Give points for our pieces, subtract for opponent pieces
                 player_count = window.count(player)
                 opponent_count = window.count(opponent)
@@ -318,18 +297,18 @@ class GameState:
                 
                 # Only consider if there are no opponent pieces (can't win otherwise)
                 if opponent_count == 0:
-                    if player_count == 3 and empty_count == 1:
+                    if player_count == win_condition - 1 and empty_count == 1:
                         score += 5  # Near win
-                    elif player_count == 2 and empty_count == 2:
+                    elif player_count == win_condition - 2 and empty_count == 2:
                         score += 2  # Building threat
-                    elif player_count == 1 and empty_count == 3:
+                    elif player_count == 1 and empty_count == win_condition - 1:
                         score += 0.5  # Starting position
                 
                 # Also check opponent's diagonal threats
                 if player_count == 0:
-                    if opponent_count == 3 and empty_count == 1:
+                    if opponent_count == win_condition - 1 and empty_count == 1:
                         score -= 6  # Near loss - weigh higher than our threats
-                    elif opponent_count == 2 and empty_count == 2:
+                    elif opponent_count == win_condition - 2 and empty_count == 2:
                         score -= 3  # Opponent building threat
         
         return score
@@ -347,45 +326,12 @@ class GameState:
         opponent = 3 - player
         moves = []
         pattern_score = 0
-        
-        # Check for the "7-shape" trap (very powerful in Connect Four)
-        # This pattern looks like:
-        #  _ _ _ _
-        #  _ _ _ _
-        #  _ X _ _
-        #  _ X O _
-        #  X O O _
-        for col in range(1, 6):  # Need space on both sides
-            for row in range(2, 6):  # Need at least 3 rows below
-                # Check if we have the basic pattern
-                if (row-2 >= 0 and col-1 >= 0 and col+1 < 7 and
-                    self.board[row-2][col-1] == player and
-                    self.board[row-1][col] == player and
-                    self.board[row-2][col+1] == 0 and
-                    self.board[row-1][col+1] == opponent and
-                    self.board[row][col] == player and
-                    self.board[row][col+1] == opponent):
-                    
-                    # This is a powerful trap - recommend placing above the opponent's piece
-                    if row+1 < 6 and self.board[row+1][col+1] == 0:
-                        moves.append(col+1)
-                        pattern_score += 10  # Very high value for this trap
-        
-        # Check for "staircase" pattern (another strong Connect Four pattern)
-        for col in range(1, 5):  # Need space for a 4-wide pattern
-            for row in range(1, 6):  # Need at least 2 rows
-                if (row-1 >= 0 and col+2 < 7 and
-                    self.board[row][col] == player and
-                    self.board[row-1][col+1] == player and
-                    self.board[row-1][col+2] == 0):
-                    
-                    # Completing the staircase
-                    if self.game_board.is_valid_location(col+2):
-                        moves.append(col+2)
-                        pattern_score += 8
+        board = self.board
+        num_rows, num_cols = board.shape
+        win_condition = self.game_board.win_condition  # Get win condition from game board
         
         # Check for double-threat creation (placing a piece that creates TWO three-in-a-rows)
-        for col in range(7):
+        for col in range(num_cols):
             if not self.game_board.is_valid_location(col):
                 continue
                 
@@ -393,98 +339,49 @@ class GameState:
             row = self.game_board.get_next_open_row(col)
             
             # Create a temporary board with this move
-            temp_board = self.board.copy()
+            temp_board = board.copy()
             temp_board[row][col] = player
             
             # Count threats in all directions
             threat_count = 0
             
             # Check horizontal threats
-            for c in range(max(0, col-3), min(col+1, 4)):
-                window = [temp_board[row][c+i] for i in range(4)]
-                if window.count(player) == 3 and window.count(0) == 1:
-                    threat_count += 1
+            for c in range(max(0, col-(win_condition-1)), min(col+1, num_cols-(win_condition-1))):
+                if c + win_condition <= num_cols:
+                    window = [temp_board[row][c+i] for i in range(win_condition)]
+                    if window.count(player) == win_condition - 1 and window.count(0) == 1:
+                        threat_count += 1
             
             # Check vertical threats
-            if row >= 3:
-                window = [temp_board[row-i][col] for i in range(4)]
-                if window.count(player) == 3 and window.count(0) == 1:
+            if row >= win_condition - 1:
+                window = [temp_board[row-i][col] for i in range(win_condition)]
+                if window.count(player) == win_condition - 1 and window.count(0) == 1:
                     threat_count += 1
             
             # Check diagonal threats
             # Positive diagonal
-            for i in range(4):
+            for i in range(win_condition):
                 r = row - i
                 c = col - i
-                if r >= 0 and r <= 2 and c >= 0 and c <= 3:
-                    window = [temp_board[r+j][c+j] for j in range(4)]
-                    if window.count(player) == 3 and window.count(0) == 1:
+                if r >= 0 and r <= num_rows - win_condition and c >= 0 and c <= num_cols - win_condition:
+                    window = [temp_board[r+j][c+j] for j in range(win_condition)]
+                    if window.count(player) == win_condition - 1 and window.count(0) == 1:
                         threat_count += 1
             
             # Negative diagonal
-            for i in range(4):
+            for i in range(win_condition):
                 r = row - i
                 c = col + i
-                if r >= 0 and r <= 2 and c >= 3 and c <= 6:
-                    window = [temp_board[r+j][c-j] for j in range(4)]
-                    if window.count(player) == 3 and window.count(0) == 1:
-                        threat_count += 1
+                if r >= 0 and r <= num_rows - win_condition and c >= win_condition - 1 and c < num_cols:
+                    if all(0 <= r+j < num_rows and 0 <= c-j < num_cols for j in range(win_condition)):
+                        window = [temp_board[r+j][c-j] for j in range(win_condition)]
+                        if window.count(player) == win_condition - 1 and window.count(0) == 1:
+                            threat_count += 1
             
             # If this creates multiple threats, it's a very strong move
             if threat_count >= 2:
                 moves.append(col)
                 pattern_score += threat_count * 7  # Valuable move
-        
-        # Check for "ladder defense" - blocks that prevent opponent's ladders
-        for col in range(7):
-            if not self.game_board.is_valid_location(col):
-                continue
-                
-            # Find where our piece would land
-            row = self.game_board.get_next_open_row(col)
-            
-            # Now check if placing opponent's piece above would create a threat
-            if row + 1 < 6:
-                temp_board = self.board.copy()
-                temp_board[row][col] = player  # Our move
-                temp_board[row+1][col] = opponent  # Opponent's response
-                
-                # Check if opponent would have winning threats after this
-                opponent_threats = 0
-                
-                # Check horizontals
-                for c in range(max(0, col-3), min(col+1, 4)):
-                    window = [temp_board[row+1][c+i] for i in range(4)]
-                    if window.count(opponent) == 3 and window.count(0) == 1:
-                        opponent_threats += 1
-                        
-                # Check diagonals from the opponent's piece
-                # Positive diagonal
-                for i in range(4):
-                    r = row+1 - i
-                    c = col - i
-                    if r >= 0 and r <= 2 and c >= 0 and c <= 3:
-                        window = [temp_board[r+j][c+j] for j in range(4)]
-                        if window.count(opponent) == 3 and window.count(0) == 1:
-                            opponent_threats += 1
-                
-                # Negative diagonal
-                for i in range(4):
-                    r = row+1 - i
-                    c = col + i
-                    if r >= 0 and r <= 2 and c >= 3 and c <= 6:
-                        window = [temp_board[r+j][c-j] for j in range(4)]
-                        if window.count(opponent) == 3 and window.count(0) == 1:
-                            opponent_threats += 1
-                
-                # If move allows opponent to create threats, avoid it
-                if opponent_threats > 0:
-                    pattern_score -= opponent_threats * 5
-                else:
-                    # This is a safe move that doesn't lead to opponent threats
-                    pattern_score += 2
-                    if col not in moves:
-                        moves.append(col)
         
         return moves, pattern_score
 
@@ -763,12 +660,13 @@ class DPAgent:
                     if state.check_for_immediate_threat(opponent):
                         exploration_bonus += 5000.0  # Very high bonus for blocking opponent wins
                     
-                    # Additional patters - high bonus but not as critical
+                    # Additional patterns - high bonus but not as critical
                     # Strategically important states get a significant bonus
                     
                     # Add bonus for center control
-                    center_col = 3
-                    center_pieces = sum(1 for row in range(6) if state.board[row][center_col] == current_player)
+                    num_rows, num_cols = state.board.shape
+                    center_col = num_cols // 2
+                    center_pieces = sum(1 for row in range(num_rows) if row < num_rows and state.board[row][center_col] == current_player)
                     exploration_bonus += center_pieces * 50.0
                     
                     # Add diagonal pattern detection
@@ -860,7 +758,10 @@ class DPAgent:
         for action in valid_actions:
             # Create a copy of the game board to simulate opponent's move
             temp_board = state.board.copy()
-            temp_game_board = GameBoard()
+            # Need to create a new GameBoard with the correct dimensions and win condition
+            rows, cols = state.board.shape
+            win_condition = state.game_board.win_condition
+            temp_game_board = GameBoard(rows=rows, cols=cols, win_condition=win_condition)
             temp_game_board.board = temp_board
             
             # Find the next open row in the chosen column
@@ -878,7 +779,7 @@ class DPAgent:
         fork_actions = []
         for action in valid_actions:
             next_state = state.apply_action(action)
-            forks = self._count_forks(next_state.board, current_player)
+            forks = self._count_forks(next_state.board, current_player, next_state.game_board.win_condition)
             if forks > 0:
                 print(f"Creating fork at column {action+1} with {forks} potential threats")
                 fork_actions.append((action, forks))
@@ -888,13 +789,16 @@ class DPAgent:
             best_fork_action = max(fork_actions, key=lambda x: x[1])[0]
             return best_fork_action
         
-        # Check threat creation - look for moves that create 3-in-a-row
+        # Check threat creation - look for moves that create win-minus-one-in-a-row
         threat_actions = []
         for action in valid_actions:
             next_state = state.apply_action(action)
-            threats = self._count_threats(next_state.board, current_player, 3)
+            # Get the win condition from the game board
+            win_condition = next_state.game_board.win_condition
+            # Count threats with win_condition - 1 pieces in a row
+            threats = self._count_threats(next_state.board, current_player, win_condition - 1, win_condition)
             if threats > 0:
-                print(f"Creating threat at column {action+1} with {threats} three-in-a-rows")
+                print(f"Creating threat at column {action+1} with {threats} potential winning positions")
                 threat_actions.append((action, threats))
                 
         # If we found threat-creating moves, choose the one with the most threats
@@ -945,8 +849,20 @@ class DPAgent:
         
         # If still no best action, prefer center columns
         if best_action is None:
-            # Center column preference - heavily biased toward center
-            center_preference = [3, 2, 4, 1, 5, 0, 6]  # Center first, then radiating outward
+            # Get the center column based on number of columns
+            num_cols = state.board.shape[1]
+            center_col = num_cols // 2
+            
+            # Center column preference - prefer center, then adjacent columns
+            center_preference = [center_col]
+            # Add columns radiating outward from center
+            for offset in range(1, num_cols):
+                if center_col - offset >= 0:
+                    center_preference.append(center_col - offset)
+                if center_col + offset < num_cols:
+                    center_preference.append(center_col + offset)
+                    
+            # Choose the first valid action from our preference list
             for col in center_preference:
                 if col in valid_actions:
                     best_action = col
@@ -1147,8 +1063,12 @@ class DPAgent:
         self.cache_misses += 1
         
         board = state.board
+        num_rows, num_cols = board.shape
         current_player = state.turn + 1  # Player 1 or 2
         last_player = 3 - current_player  # Previous player
+        
+        # Get win condition from the game board
+        win_condition = state.game_board.win_condition
         
         # First check if last player won (current player loses)
         if state.game_board.winning_move(last_player):
@@ -1166,19 +1086,21 @@ class DPAgent:
         reward = 0.0
         
         # Check for potential winning positions for the current player
-        three_in_a_row = self._count_threats(board, current_player, 3)
-        two_in_a_row = self._count_threats(board, current_player, 2)
+        three_in_a_row = self._count_threats(board, current_player, win_condition-1, win_condition)
+        two_in_a_row = self._count_threats(board, current_player, win_condition-2, win_condition)
         
         # Check for opponent threats
-        opponent_three = self._count_threats(board, last_player, 3)
-        opponent_two = self._count_threats(board, last_player, 2)
+        opponent_three = self._count_threats(board, last_player, win_condition-1, win_condition)
+        opponent_two = self._count_threats(board, last_player, win_condition-2, win_condition)
         
         # Count forks (multiple threats)
-        fork_positions = self._count_forks(board, current_player)
-        opponent_forks = self._count_forks(board, last_player)
+        fork_positions = self._count_forks(board, current_player, win_condition)
+        opponent_forks = self._count_forks(board, last_player, win_condition)
         
-        # Get diagonal connectivity score
-        diagonal_score = state.check_diagonal_connectivity(current_player)
+        # Get diagonal connectivity score - not using this for smaller boards
+        diagonal_score = 0
+        if win_condition >= 4:
+            diagonal_score = state.check_diagonal_connectivity(current_player)
         
         # REWARD STRUCTURE - BALANCED FOR BOTH OFFENSE AND DEFENSE
         
@@ -1201,71 +1123,25 @@ class DPAgent:
         reward -= opponent_two * 4.0  
         reward -= opponent_forks * 75.0  # Critical to block opponent forks
         
-        # Reward center control - the center column is most valuable
-        center_control = sum(1 for row in range(6) if board[row][3] == current_player)
+        # Prefer center control - use appropriate center column based on board size
+        center_col = num_cols // 2  # Middle column
+        center_control = sum(1 for row in range(num_rows) if board[row][center_col] == current_player)
         reward += center_control * 5.0
         
         # Opponent center control is dangerous
-        opponent_center = sum(1 for row in range(6) if board[row][3] == last_player)
+        opponent_center = sum(1 for row in range(num_rows) if board[row][center_col] == last_player)
         reward -= opponent_center * 4.0
         
-        # Adjacent columns are next most valuable
-        adjacent_control = sum(1 for row in range(6) for col in [2, 4] if board[row][col] == current_player)
-        reward += adjacent_control * 2.0
-        
-        # Outer columns have some value too
-        outer_adjacent = sum(1 for row in range(6) for col in [1, 5] if board[row][col] == current_player)
-        reward += outer_adjacent * 1.0
-        
-        # Calculate piece height advantage (prefer lower positions)
-        height_advantage = 0
-        for col in range(7):
-            for row in range(6):
-                if board[row][col] == current_player:
-                    # Pieces in lower rows get more value
-                    height_advantage += 0.3 * (1 + row/5.0)
-                elif board[row][col] == last_player:
-                    # Opponent pieces in lower rows are a disadvantage
-                    height_advantage -= 0.3 * (1 + row/5.0)
-        
-        reward += height_advantage
-        
-        # GAME PHASE ADJUSTMENTS 
-        empty_count = np.count_nonzero(board == 0)
-        
-        # Early game (first ~7 moves)
-        if empty_count > 35:
-            # Center column control is extra important early
-            if board[0][3] == current_player:
-                reward += 10.0
+        # Adjacent columns are next most valuable if available
+        adjacent_columns = []
+        if center_col > 0:
+            adjacent_columns.append(center_col - 1)
+        if center_col < num_cols - 1:
+            adjacent_columns.append(center_col + 1)
             
-            # Opponent controlling center is extra dangerous early
-            if board[0][3] == last_player:
-                reward -= 15.0
-                
-            # Extra value for other strategic positions
-            for col in [2, 4]:
-                for row in range(2):
-                    if row < 6 and board[row][col] == current_player:
-                        reward += 3.0
-                    if row < 6 and board[row][col] == last_player:
-                        reward -= 3.0
-        
-        # Mid-game adjustments (when board is partially filled)
-        elif empty_count > 20 and empty_count <= 35:
-            # In mid-game, defensive play is more important
-            reward -= opponent_three * 10.0  # Additional penalty
-            reward -= opponent_forks * 15.0
-            
-            # Bonus for connected pieces (building structures)
-            connected_pieces = self._count_connected_pieces(board, current_player)
-            reward += connected_pieces * 1.5
-        
-        # End-game adjustments (board mostly filled)
-        else:
-            # In end-game, aggressive play is more important
-            reward += three_in_a_row * 10.0
-            reward += fork_positions * 10.0
+        if adjacent_columns:
+            adjacent_control = sum(1 for row in range(num_rows) for col in adjacent_columns if col < num_cols and board[row][col] == current_player)
+            reward += adjacent_control * 2.0
         
         # Add a small penalty to encourage faster wins
         reward -= 0.01
@@ -1278,19 +1154,20 @@ class DPAgent:
         """Count the number of our pieces that are adjacent to other pieces of the same player."""
         connected = 0
         directions = [(0,1), (1,0), (1,1), (1,-1)]  # horizontal, vertical, diagonal
+        num_rows, num_cols = board.shape
         
-        for row in range(6):
-            for col in range(7):
+        for row in range(num_rows):
+            for col in range(num_cols):
                 if board[row][col] == player:
                     # Check all directions
                     for dr, dc in directions:
                         r2, c2 = row + dr, col + dc
-                        if 0 <= r2 < 6 and 0 <= c2 < 7 and board[r2][c2] == player:
+                        if 0 <= r2 < num_rows and 0 <= c2 < num_cols and board[r2][c2] == player:
                             connected += 1
         
         return connected
         
-    def _count_threats(self, board, player, count):
+    def _count_threats(self, board, player, count, win_condition=4):
         """
         Count the number of potential threats with 'count' pieces in a row
         and at least one empty space to complete it.
@@ -1299,58 +1176,62 @@ class DPAgent:
             board: The game board
             player: The player to check threats for
             count: How many pieces in a row to look for
+            win_condition: Number of pieces in a row needed to win
             
         Returns:
             int: Number of threats found
         """
         threats = 0
+        num_rows, num_cols = board.shape
         
         # Horizontal threats
-        for row in range(6):
-            for col in range(7 - 3):
-                window = [board[row][col+i] for i in range(4)]
-                if window.count(player) == count and window.count(0) == 4 - count:
+        for row in range(num_rows):
+            for col in range(num_cols - (win_condition - 1)):
+                window = [board[row][col+i] for i in range(win_condition)]
+                if window.count(player) == count and window.count(0) == win_condition - count:
                     threats += 1
         
         # Vertical threats
-        for row in range(6 - 3):
-            for col in range(7):
-                window = [board[row+i][col] for i in range(4)]
-                if window.count(player) == count and window.count(0) == 4 - count:
+        for row in range(num_rows - (win_condition - 1)):
+            for col in range(num_cols):
+                window = [board[row+i][col] for i in range(win_condition)]
+                if window.count(player) == count and window.count(0) == win_condition - count:
                     threats += 1
         
         # Positive diagonal threats
-        for row in range(6 - 3):
-            for col in range(7 - 3):
-                window = [board[row+i][col+i] for i in range(4)]
-                if window.count(player) == count and window.count(0) == 4 - count:
+        for row in range(num_rows - (win_condition - 1)):
+            for col in range(num_cols - (win_condition - 1)):
+                window = [board[row+i][col+i] for i in range(win_condition)]
+                if window.count(player) == count and window.count(0) == win_condition - count:
                     threats += 1
         
         # Negative diagonal threats
-        for row in range(3, 6):
-            for col in range(7 - 3):
-                window = [board[row-i][col+i] for i in range(4)]
-                if window.count(player) == count and window.count(0) == 4 - count:
+        for row in range(win_condition - 1, num_rows):
+            for col in range(num_cols - (win_condition - 1)):
+                window = [board[row-i][col+i] for i in range(win_condition)]
+                if window.count(player) == count and window.count(0) == win_condition - count:
                     threats += 1
                     
         return threats
         
-    def _count_forks(self, board, player):
+    def _count_forks(self, board, player, win_condition=4):
         """
         Count fork positions - positions where multiple winning threats exist.
         
         Args:
             board: The game board
             player: The player to check for
+            win_condition: Number of pieces in a row needed to win
             
         Returns:
             int: Number of fork positions
         """
         forks = 0
+        num_rows, num_cols = board.shape
         
         # For each empty position, check if placing a piece creates multiple threats
-        for col in range(7):
-            for row in range(6):
+        for col in range(num_cols):
+            for row in range(num_rows):
                 # Skip non-empty positions
                 if board[row][col] != 0:
                     continue
@@ -1363,7 +1244,7 @@ class DPAgent:
                 board[row][col] = player
                 
                 # Count threats at this position
-                threats = self._count_threats(board, player, 3)
+                threats = self._count_threats(board, player, win_condition-1, win_condition)
                 
                 # A fork has at least 2 threats
                 if threats >= 2:

@@ -3,7 +3,7 @@ import sys
 import pygame
 from pygame.locals import KEYDOWN
 
-from config import BLACK, BLUE, WHITE, RED
+from config import BLACK, BLUE, WHITE, RED, GREEN, YELLOW
 from connect_game import ConnectGame
 from events import MouseClickEvent, MouseHoverEvent, bus
 from game_data import GameData
@@ -14,8 +14,14 @@ def quit():
     sys.exit()
 
 
-def start(mode: str = 'pvp'):
+def start(mode: str = 'pvp', board_size: tuple = None):
     data = GameData()
+    
+    # Set board size if specified (columns, rows, win_condition)
+    if board_size:
+        cols, rows, win_condition = board_size
+        data.set_board_size(cols, rows, win_condition)
+    
     data.set_game_mode(mode)
     screen = pygame.display.set_mode(data.size)
     game = ConnectGame(data, GameRenderer(screen, data))
@@ -64,50 +70,131 @@ def message_display(text, color, p, q, v):
 
 
 pygame.init()
-screen = pygame.display.set_mode(GameData().size)
+# Always use the default 7x6 board size for the main menu
+default_data = GameData()
+# Force the default game data to use standard size board for menu
+default_data.set_board_size(7, 6, 4)  # Standard Connect 4 dimensions
+screen = pygame.display.set_mode(default_data.size)
 pygame.display.set_caption("Connect Four | Mayank Singh")
-message_display("CONNECT FOUR!!", WHITE, 350, 150, 75)
-message_display("HAVE FUN!", (23, 196, 243), 350, 300, 75)
+
+# Menu state variables
+selected_size = (7, 6, 4)  # Default: 7x6 Connect 4 (cols, rows, win_condition)
+selected_mode = 'pvp'  # Default: Player vs Player
+menu_state = 'main'  # States: 'main', 'size', 'mode'
+
+# Add variable to track if mouse button was just released
+button_clicked = False
+prev_mouse_state = pygame.mouse.get_pressed()[0]
+transition_delay = 0  # Counter for delaying action after menu transition
 
 running = True
 while running:
-
+    # Clear screen
+    screen.fill(BLACK)
+    
+    # Title
+    message_display("CONNECT FOUR!", WHITE, 350, 100, 75)
+    
+    # Handle events
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-
-    def button(msg, x, y, w, h, ic, ac, action=None):
+    
+    # Check for mouse button release (single click)
+    current_mouse_state = pygame.mouse.get_pressed()[0]
+    
+    # Set button_clicked to True when mouse is released (goes from pressed to not pressed)
+    if prev_mouse_state and not current_mouse_state:
+        button_clicked = True
+    else:
+        button_clicked = False
+    
+    # Update previous mouse state for next frame
+    prev_mouse_state = current_mouse_state
+    
+    # Decrement transition delay counter if active
+    if transition_delay > 0:
+        transition_delay -= 1
+    
+    def button(msg, x, y, w, h, ic, ac, action=None, selected=False):
+        global transition_delay
         mouse = pygame.mouse.get_pos()
-        click = pygame.mouse.get_pressed()
-
-        if x + w > mouse[0] > x and y + h > mouse[1] > y:
-            pygame.draw.rect(screen, ac, (x, y, w, h))
-            # Draw slightly smaller black rectangle inside
-            pygame.draw.rect(screen, BLACK, (x+2, y+2, w-4, h-4))
-            if click[0] == 1 and action != None:
-                action()
-        else:
-            pygame.draw.rect(screen, ic, (x, y, w, h))
-            # Draw slightly smaller black rectangle inside
-            pygame.draw.rect(screen, BLACK, (x+2, y+2, w-4, h-4))
+        
+        # Check if mouse is over button
+        is_over_button = x + w > mouse[0] > x and y + h > mouse[1] > y
+        
+        # Determine button color based on hover
+        button_color = ac if is_over_button else ic
+        
+        # If this button is selected, draw a highlight
+        if selected:
+            pygame.draw.rect(screen, GREEN, (x-5, y-5, w+10, h+10))
+            
+        pygame.draw.rect(screen, button_color, (x, y, w, h))
+        # Draw slightly smaller black rectangle inside
+        pygame.draw.rect(screen, BLACK, (x+2, y+2, w-4, h-4))
 
         smallText = pygame.font.SysFont("monospace", 30)
         textSurf, textRect = text_objects(msg, smallText, WHITE)
         textRect.center = ((x + (w / 2)), (y + (h / 2)))
         screen.blit(textSurf, textRect)
+        
+        # Only trigger action on mouse button release and when transition delay is inactive
+        if is_over_button and button_clicked and action is not None and transition_delay == 0:
+            # Set transition delay to prevent immediate clicks after state change
+            transition_delay = 5  # Delay for 5 frames
+            action()
+            return True
+        return False
 
-    # Game mode buttons
+    # Settings indicator
+    current_settings_text = f"Game: {'4x3 Connect 3' if selected_size == (4, 3, 3) else '7x6 Connect 4'} | Mode: {selected_mode.upper()}"
+    message_display(current_settings_text, YELLOW, 350, 180, 25)
+    
     button_width = 300
     button_height = 50
-    button_x = (700 - button_width) // 2  # Center horizontally (screen width is 700)
+    button_x = (700 - button_width) // 2  # Center horizontally
     
-    # Main menu buttons
-    button("Player vs Player", button_x, 400, button_width, button_height, WHITE, BLUE, lambda: start('pvp'))
-    button("Player vs Agent", button_x, 470, button_width, button_height, WHITE, BLUE, lambda: start('pva'))
-    button("Agent vs Agent", button_x, 540, button_width, button_height, WHITE, BLUE, lambda: start('ava'))
-    
-    # Quit button - centered and below other buttons
+    if menu_state == 'main':
+        # Main menu options
+        message_display("SELECT GAME OPTIONS", WHITE, 350, 250, 40)
+        button("Board Size", button_x, 300, button_width, button_height, WHITE, BLUE, 
+               lambda: globals().update(menu_state='size'))
+        button("Game Mode", button_x, 370, button_width, button_height, WHITE, BLUE, 
+               lambda: globals().update(menu_state='mode'))
+        button("START GAME", button_x, 470, button_width, button_height, WHITE, GREEN, 
+               lambda: start(selected_mode, selected_size))
+        
+    elif menu_state == 'size':
+        # Board size selection menu
+        message_display("SELECT BOARD SIZE", WHITE, 350, 250, 40)
+        button("7x6 Connect 4 (Standard)", button_x, 300, button_width, button_height, 
+               WHITE, BLUE, lambda: globals().update(selected_size=(7, 6, 4), menu_state='main'),
+               selected=(selected_size == (7, 6, 4)))
+        button("4x3 Connect 3 (Mini)", button_x, 370, button_width, button_height, 
+               WHITE, BLUE, lambda: globals().update(selected_size=(4, 3, 3), menu_state='main'),
+               selected=(selected_size == (4, 3, 3)))
+        button("Back", button_x, 470, button_width, button_height, WHITE, RED, 
+               lambda: globals().update(menu_state='main'))
+        
+    elif menu_state == 'mode':
+        # Game mode selection menu
+        message_display("SELECT GAME MODE", WHITE, 350, 250, 40)
+        button("Player vs Player", button_x, 300, button_width, button_height, 
+               WHITE, BLUE, lambda: globals().update(selected_mode='pvp', menu_state='main'),
+               selected=(selected_mode == 'pvp'))
+        button("Player vs Agent", button_x, 370, button_width, button_height, 
+               WHITE, BLUE, lambda: globals().update(selected_mode='pva', menu_state='main'),
+               selected=(selected_mode == 'pva'))
+        button("Agent vs Agent", button_x, 440, button_width, button_height, 
+               WHITE, BLUE, lambda: globals().update(selected_mode='ava', menu_state='main'),
+               selected=(selected_mode == 'ava'))
+        button("Back", button_x, 510, button_width, button_height, WHITE, RED, 
+               lambda: globals().update(menu_state='main'))
+        
+    # Quit button - always visible
     quit_width = 150
     quit_x = (700 - quit_width) // 2
     button("QUIT", quit_x, 610, quit_width, button_height, WHITE, RED, quit)
+    
     pygame.display.update()

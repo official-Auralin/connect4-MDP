@@ -110,7 +110,7 @@ class ConnectGame:
         )
         
         col = int(math.floor(event.posx / self.game_data.sq_size))
-        # Add bounds checking to ensure column is valid (0-6)
+        # Add bounds checking to ensure column is valid (0 to cols-1)
         if 0 <= col < self.game_data.game_board.cols:
             self.make_move(col)
         # If col is outside valid range, ignore the click
@@ -161,16 +161,18 @@ class ConnectGame:
             print(os.getpid())
             pygame.time.wait(1000)
             
-            # Use the correct path to the game.py file
+            # Instead of running game.py as a separate process, we'll restart the game
+            # by quitting pygame and letting the Python script restart naturally
+            # This ensures the window size is properly reset
+            pygame.quit()
+            
+            # Use sys.executable to ensure we use the correct Python interpreter
+            import sys
             script_dir = os.path.dirname(os.path.abspath(__file__))
             game_path = os.path.join(script_dir, "game.py")
             
-            # Use python to run the game script
-            if os.path.exists(game_path):
-                os.system(f"python {game_path}")
-            else:
-                print(f"Error: Could not find {game_path}")
-                print(f"Current directory: {os.getcwd()}")
+            # Execute the game script with the proper Python interpreter
+            os.execl(sys.executable, sys.executable, game_path)
 
     def draw(self):
         """

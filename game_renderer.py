@@ -79,12 +79,17 @@ class GameRenderer:
             render_line("λ[0]", f"{eigenvalues[0]:.4f}")
 
     @bus.on("mouse:hover")
-    def on_mouse_move(self, event: MouseHoverEvent):
+    def on_mouse_hover(self, event: MouseHoverEvent):
         """
         Draws a coin over the slot that the mouse is positioned.
         :param event: Information about the hover, namely the x position
         """
         posx = event.posx
+        
+        # Make sure we're within the valid column range
+        if posx >= self.game_data.cols * self.game_data.sq_size:
+            # Mouse is outside the play area (in stats panel)
+            return
 
         pygame.draw.rect(
             self.screen, BLACK, (0, 0, self.game_data.width, self.game_data.sq_size)
@@ -201,9 +206,9 @@ class GameRenderer:
         Draws the game board to the screen.
         :param board: The game board.
         """
-        sq_size = 100
-        height = 700
-        radius = int(sq_size / 2 - 5)
+        sq_size = self.game_data.sq_size
+        height = self.game_data.height
+        radius = self.game_data.radius
 
         for c in range(board.cols):
             for r in range(board.rows):
@@ -238,5 +243,20 @@ class GameRenderer:
                     self.draw_yellow_coin(
                         int(c * sq_size) + 5, height - int(r * sq_size + sq_size - 5)
                     )
+        
+        # Display the game mode and board size info
+        font = pygame.font.SysFont(None, 24)
+        x_offset = self.game_data.width - self.game_data.panel_size + 20
+        y = height - 140
+        
+        # Draw game information
+        game_mode_text = f"Game Mode: {self.game_data.game_mode.upper()}"
+        board_size_text = f"Board Size: {self.game_data.cols}x{self.game_data.rows}"
+        win_condition_text = f"Win Condition: {self.game_data.win_condition} in a row"
+        
+        self.screen.blit(font.render(game_mode_text, True, WHITE), (x_offset, y))
+        self.screen.blit(font.render(board_size_text, True, WHITE), (x_offset, y + 30))
+        self.screen.blit(font.render(win_condition_text, True, WHITE), (x_offset, y + 60))
+        
         self.draw_stats_panel(self.stats)
         pygame.display.update()

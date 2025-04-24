@@ -24,18 +24,29 @@ class GameData:
     game_mode: str  # 'pvp', 'pva', 'ava'
     agent1: Optional[DPAgent]
     agent2: Optional[DPAgent]
+    
+    # Board size and win condition
+    cols: int
+    rows: int
+    win_condition: int
 
     def __init__(self):
         self.game_over = False
         self.turn = 0
         self.last_move_row = []
         self.last_move_col = []
-        self.game_board = GameBoard()
+        
+        # Default board size
+        self.cols = 7
+        self.rows = 6
+        self.win_condition = 4
+        
+        self.game_board = GameBoard(rows=self.rows, cols=self.cols)
         self.action = None
         self.panel_size = 400
         self.sq_size: int = 100
-        self.width: int = 7 * self.sq_size + self.panel_size
-        self.height: int = 7 * self.sq_size
+        self.width: int = self.cols * self.sq_size + self.panel_size
+        self.height: int = (self.rows + 1) * self.sq_size
         self.size: Tuple[int, int] = (self.width, self.height)
         self.radius: int = int(self.sq_size / 2 - 5)
         
@@ -43,6 +54,27 @@ class GameData:
         self.game_mode = 'pvp'  # Default to player vs player
         self.agent1 = None
         self.agent2 = None
+
+    def set_board_size(self, cols: int, rows: int, win_condition: int) -> None:
+        """
+        Set the game board size and win condition.
+        
+        Args:
+            cols: Number of columns in the board
+            rows: Number of rows in the board
+            win_condition: Number of pieces in a row needed to win
+        """
+        self.cols = cols
+        self.rows = rows
+        self.win_condition = win_condition
+        
+        # Reinitialize the game board with new dimensions
+        self.game_board = GameBoard(rows=rows, cols=cols, win_condition=win_condition)
+        
+        # Update display size based on new dimensions
+        self.width = cols * self.sq_size + self.panel_size
+        self.height = (rows + 1) * self.sq_size
+        self.size = (self.width, self.height)
 
     def set_game_mode(self, mode: str) -> None:
         """

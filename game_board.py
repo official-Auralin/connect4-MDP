@@ -11,15 +11,18 @@ class GameBoard:
     board: ndarray
     cols: int
     rows: int
+    win_condition: int  # Number of pieces needed in a row to win
 
-    def __init__(self, rows=6, cols=7):
+    def __init__(self, rows=6, cols=7, win_condition=4):
         """
         Initializes the game board.
         :param rows: The height of the board in rows.
-        :param cols: The width of the boarrd in columns.
+        :param cols: The width of the board in columns.
+        :param win_condition: Number of pieces needed in a row to win.
         """
         self.rows = rows
         self.cols = cols
+        self.win_condition = win_condition
         self.board = zeros((rows, cols))
 
     def print_board(self):
@@ -27,8 +30,12 @@ class GameBoard:
         Prints the state of the board to the console.
         """
         print(flip(self.board, 0))
-        print(" ---------------------")
-        print(" " + str([1, 2, 3, 4, 5, 6, 7]))
+        # Adjust column numbers display based on number of columns
+        col_nums = [i+1 for i in range(self.cols)]
+        col_display = " " + str(col_nums)
+        separator = " " + "-" * (self.cols * 2 + 1)
+        print(separator)
+        print(col_display)
 
     def drop_piece(self, row, col, piece):
         """
@@ -87,12 +94,16 @@ class GameBoard:
         :param c: The column.
         :return: Whether there is a horizontal win at the position (r, c).
         """
-        return (
-            self.check_square(piece, r, c)
-            and self.check_square(piece, r, c + 1)
-            and self.check_square(piece, r, c + 2)
-            and self.check_square(piece, r, c + 3)
-        )
+        # Check if there's enough space to the right for a win
+        if c + self.win_condition > self.cols:
+            return False
+            
+        # Check if all positions contain the piece
+        for i in range(self.win_condition):
+            if not self.check_square(piece, r, c + i):
+                return False
+                
+        return True
 
     def vertical_win(self, piece, r, c):
         """
@@ -102,12 +113,16 @@ class GameBoard:
         :param c: The column
         :return: Whether there is a vertical win at the position (r, c)
         """
-        return (
-            self.check_square(piece, r, c)
-            and self.check_square(piece, r + 1, c)
-            and self.check_square(piece, r + 2, c)
-            and self.check_square(piece, r + 3, c)
-        )
+        # Check if there's enough space above for a win
+        if r + self.win_condition > self.rows:
+            return False
+            
+        # Check if all positions contain the piece
+        for i in range(self.win_condition):
+            if not self.check_square(piece, r + i, c):
+                return False
+                
+        return True
 
     def diagonal_win(self, piece, r, c):
         """
@@ -117,17 +132,23 @@ class GameBoard:
         :param c: The column
         :return: Whether there is a diagonal win at the position (r,c)
         """
-        return (
-            self.check_square(piece, r, c)
-            and self.check_square(piece, r + 1, c + 1)
-            and self.check_square(piece, r + 2, c + 2)
-            and self.check_square(piece, r + 3, c + 3)
-        ) or (
-            self.check_square(piece, r, c)
-            and self.check_square(piece, r - 1, c + 1)
-            and self.check_square(piece, r - 2, c + 2)
-            and self.check_square(piece, r - 3, c + 3)
-        )
+        # Check positive diagonal (/)
+        if r + self.win_condition <= self.rows and c + self.win_condition <= self.cols:
+            for i in range(self.win_condition):
+                if not self.check_square(piece, r + i, c + i):
+                    break
+            else:
+                return True
+                
+        # Check negative diagonal (\)
+        if r >= self.win_condition - 1 and c + self.win_condition <= self.cols:
+            for i in range(self.win_condition):
+                if not self.check_square(piece, r - i, c + i):
+                    break
+            else:
+                return True
+                
+        return False
 
     def winning_move(self, piece):
         """
@@ -151,10 +172,11 @@ class GameBoard:
         :return:  Whether a tie has occurred.
         """
         slots_filled: int = 0
+        total_slots = self.rows * self.cols
 
         for c in range(self.cols):
             for r in range(self.rows):
                 if self.board[r][c] != 0:
                     slots_filled += 1
 
-        return slots_filled == 42
+        return slots_filled == total_slots
