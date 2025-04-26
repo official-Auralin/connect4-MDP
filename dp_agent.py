@@ -78,7 +78,7 @@ class DPAgent:
     to compute optimal policies for the current game state.
     """
     
-    def __init__(self, discount_factor: float = 0.9995, epsilon: float = 0.001, horizon: int = DEFAULT_HORIZON, beam_width: int = 800,
+    def __init__(self, discount_factor: float = 0.95, epsilon: float = 0.001, horizon: int = DEFAULT_HORIZON, beam_width: int = 800,
                  use_heuristics: bool = True, use_search: bool = False, verbose: bool = True):
         """
         Initialize the DP agent.
@@ -1001,14 +1001,6 @@ class DPAgent:
         # Add a small penalty to encourage faster wins
         reward -= 0.01
 
-        # ------------------------------------------------------------------
-        # Normalise sign: positive numbers should ALWAYS favour Player 2
-        # (the maximiser).  If the current player is Player 1 (the minimiser),
-        # flip the sign so that identical board patterns are evaluated
-        # symmetrically from the opponent's perspective.
-        # ------------------------------------------------------------------
-        if current_player == 1:
-            reward = -reward
 
         # Cache the reward
         self.eval_cache[state_hash] = reward
@@ -1467,6 +1459,10 @@ class DPAgent:
             if s in policy and policy[s] is not None:
                 a = policy[s]
                 sprime = s.apply_action(a)
+                # Terminal states – leave R[i]=0 and a zero row in P so
+                # predecessors take the entire payoff in their immediate reward.
+                if s.is_terminal():
+                    continue
                 R[i] = self._get_reward(sprime)
                 if not sprime.is_terminal() and sprime in index:
                     j = index[sprime]
@@ -1501,6 +1497,9 @@ class DPAgent:
             if s in policy and policy[s] is not None:
                 a = policy[s]
                 sprime = s.apply_action(a)
+                # For terminal states, leave R[i]=0 and a zero row in P.
+                if s.is_terminal():
+                    continue
                 R[i] = self._get_reward(sprime)
                 if sprime in index:
                     P[i, index[sprime]] = 1.0
