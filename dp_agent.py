@@ -7,6 +7,11 @@ import math
 from game_board import GameBoard
 from game_state import GameState
 
+# ------------------------------------------------------------------
+# Module‑wide defaults
+# ------------------------------------------------------------------
+DEFAULT_HORIZON = 12   # change once here to propagate everywhere
+
 """
 --------------------------------------------------------------------------
 Connect‑4 MDP  —  Formal definition & DP‑only pipeline
@@ -73,7 +78,7 @@ class DPAgent:
     to compute optimal policies for the current game state.
     """
     
-    def __init__(self, discount_factor: float = 0.9995, epsilon: float = 0.001, horizon: int = 18, beam_width: int = 800,
+    def __init__(self, discount_factor: float = 0.9995, epsilon: float = 0.001, horizon: int = DEFAULT_HORIZON, beam_width: int = 800,
                  use_heuristics: bool = True, use_search: bool = True, verbose: bool = True):
         """
         Initialize the DP agent.
@@ -221,7 +226,8 @@ class DPAgent:
         
         if is_toy_problem:
             print("Detected small board - using linear algebra approach")
-            policy, values = self.run_toy_problem(num_rows, num_cols, horizon=3)
+            # Use the agent's current horizon setting for the toy run
+            policy, values = self.run_toy_problem(num_rows, num_cols, horizon=self.horizon)
             if state in policy:
                 return policy[state]
             # Fall back to regular method if policy doesn't have this state
@@ -1201,7 +1207,7 @@ class DPAgent:
                 
         return coeff
 
-    def enumerate_reachable_states(self, start_state, horizon=3):
+    def enumerate_reachable_states(self, start_state, horizon: int = DEFAULT_HORIZON):
         """Enumerate all states reachable from start_state within horizon moves."""
         all_states = set([start_state])
         frontier = [start_state]
@@ -1304,7 +1310,7 @@ class DPAgent:
         except np.linalg.LinAlgError as e:
             print(f"Error solving linear system: {e}")
 
-    def policy_iteration_linear(self, start_state, horizon=3):
+    def policy_iteration_linear(self, start_state, horizon: int | None = None):
         """
         Perform policy iteration using direct linear algebra.
         
@@ -1315,6 +1321,8 @@ class DPAgent:
         Returns:
             Tuple of (policy, values)
         """
+        if horizon is None:
+            horizon = self.horizon
         # Step 1: Enumerate all reachable states
         states = self.enumerate_reachable_states(start_state, horizon)
         print(f"Enumerated {len(states)} states within horizon {horizon}")
@@ -1433,7 +1441,7 @@ class DPAgent:
                     P[i, index[sprime]] = 1.0
         return P, R
 
-    def run_toy_problem(self, rows=3, cols=4, horizon=3):
+    def run_toy_problem(self, rows=3, cols=4, horizon=12):
         """Run a small toy problem using linear algebra approach."""
         # --- Temporarily turn off positional heuristics for this clean experiment ---
         original_heuristic_flag = self.use_heuristics
@@ -1479,7 +1487,7 @@ class DPAgent:
         
         return policy, values
 
-    def compare_with_minimax(self, state, depth=3):
+    def compare_with_minimax(self, state, depth: int = 3):
         """Compare our linear algebra solution with minimax."""
         print("\n=== COMPARING WITH MINIMAX ===")
         
