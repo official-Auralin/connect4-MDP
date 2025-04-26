@@ -41,7 +41,7 @@ class ConnectGame:
             
             # Print linear system for Player 1's initial decision
             print(f"\n=== Linear system for Player 1 (initial position) ===")
-            self.game_data.agent1.print_linear_system(game_state)
+            self.game_data.agent1.analyze_position(self.game_data.agent1._convert_to_game_state(game_state))
             self.printed_system_for_turn = True
 
     def quit(self):
@@ -204,7 +204,7 @@ class ConnectGame:
             if is_human_turn and self.game_data.agent1:
                 game_state = self.game_data.get_state_for_agent()
                 print(f"\n=== Linear system for Player {self.game_data.turn + 1} (make your move) ===")
-                self.game_data.agent1.print_linear_system(game_state)
+                self.game_data.agent1.analyze_position(game_state)
                 self.printed_system_for_turn = True
             
         # If game is not over, handle agent's turn
