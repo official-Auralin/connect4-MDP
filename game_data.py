@@ -1,7 +1,7 @@
 from typing import Tuple, Optional, Any
 
 from game_board import GameBoard
-from dp_agent import DPAgent
+from agent_factory import make_agent
 
 
 class GameData:
@@ -22,8 +22,8 @@ class GameData:
     
     # Agent-related fields
     game_mode: str  # 'pvp', 'pva', 'ava'
-    agent1: Optional[DPAgent]
-    agent2: Optional[DPAgent]
+    agent1: Optional[Any]
+    agent2: Optional[Any]
     
     # Board size and win condition
     cols: int
@@ -88,21 +88,19 @@ class GameData:
         if mode in ['pva', 'ava']:
             # Create a new agent - no pre-training needed since it uses online learning
             if self.agent1 is None:
-                print("Initializing agent (DP‑only mode)...")
-                # For linear‑algebra experiments we disable search extras & heuristics.
-                self.agent1 = DPAgent(discount_factor=0.95,
-                                      use_heuristics=False,
-                                      use_search=False)
+                print("Initializing agent ...")
+                # Centralized configuration via agent_factory
+                self.agent1 = make_agent(dp_only=True, gamma=0.95, verbose=False)
             else:
                 # Reset the agent for a new game but preserve its learned values
                 print("Resetting agent for new game...")
                 self.agent1.reset()
-                # Ensure flags stay in DP‑only mode
-                self.agent1.set_use_heuristics(False)
-                self.agent1.set_use_search(False)
+                # Ensure the reset agent keeps the configuration
+                self.agent1 = make_agent(dp_only=True, gamma=0.95, verbose=False)
                 
         if mode == 'ava':
-            # For agent vs agent, we'll use the same agent for both
+            # If you want independent agents, create a second one here.
+            # For now we reuse the same instance.
             self.agent2 = self.agent1
 
     def get_state_for_agent(self) -> Any:
