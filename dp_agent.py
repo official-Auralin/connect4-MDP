@@ -7,6 +7,12 @@ import math
 from game_board import GameBoard
 from game_state import GameState
 
+# TODO: put conditionals so that if the board is larger than 3x4 it will use the beam search, limited depth, and heuristics. 
+# TODO: remove depreciated methods.
+# TODO: add an initial state setting, so we can test the agent in terminal and near terminal states with fewer available moves—this can be done with python -c dp_agent.py --initial_state <state>.
+# TODO: imshow in matplotlib can be used to visualize the board takes in a numpy array and displays it as a grid, will pull up a secondary GUI. 
+# TODO: update the game's GUI to show the recommended move and important math.
+
 # ------------------------------------------------------------------
 # Module‑wide defaults
 # ------------------------------------------------------------------
@@ -65,11 +71,6 @@ search and positional bonuses for strong play; leave them **False** for pure
 linear‑algebra experiments.
 --------------------------------------------------------------------------
 """
-
-# TODO: add an initial state setting, so we can test the agent in terminal and near terminal states with fewer available moves
-# TODO: figure out if the recursive nature of the bellman equation is supposed to reduce to a smaller system for each turn. (what we have seems correct)
-# TODO: fill compute_bellman_equation with the correct equations, currently just returns a placeholder - this will let us see the linear systems for the 7 available moves. 
-# TODO: imshow in matplotlib can be used to visualize the board takes in a numpy array and displays it as a grid, will pull up a secondary GUI. 
 
 class DPAgent:
     """
