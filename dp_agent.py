@@ -7,6 +7,60 @@ import math
 from game_board import GameBoard
 from game_state import GameState
 
+"""
+--------------------------------------------------------------------------
+Connect‑4 MDP  —  Formal definition & DP‑only pipeline
+--------------------------------------------------------------------------
+
+Markov Decision Process
+-----------------------
+• **State space  (S)**  –  Each `GameState` encodes:
+    – an `r × c` board (r∈[2,6], c∈[3,7]) with 0 = empty, 1 = P1 piece, 2 = P2  
+    – `turn ∈ {0,1}`  (0 → P1 to play, 1 → P2)  
+    – a reference to the `GameBoard` object (rows, cols, win_condition).
+
+• **Action space  (A(s))**  –  Legal columns that are not full in state *s*.
+
+• **Transition  (T)**  –  Deterministic.
+    `s' = s.apply_action(a)` drops the current player’s piece in column *a*.
+
+• **Reward  (R)**  –  Deterministic, zero‑sum:  
+    *  +200 if P2 wins in *s'*,  
+    *  –200 if P1 wins in *s'*,  
+    *    0  if draw,  
+    *  –0.01 step cost otherwise (when `use_heuristics=False`).  
+
+• **Discount factor  (γ)**  –  Configurable (default 0.95 in DP‑only mode).
+
+Finite‑horizon truncation
+-------------------------
+Because Connect‑4 can last up to 42 plies on a 6×7 board, we approximate the
+infinite‑horizon MDP by **breadth‑first enumeration up to depth *H*** (`self.horizon`)
+from the current root.  All states beyond depth *H* are ignored; this yields a
+finite state set |S| that scales roughly O(b^H) with average branching factor *b*.
+
+DP‑only evaluation pipeline
+---------------------------
+1. **Enumerate** reachable states ≤ *H*  →  `self.enumerate_reachable_states`.  
+2. **Set global index**               →  `_set_global_state_index`.  
+3. **Initialize** `V(s)=0`, lock terminal rewards.  
+4. **Value‑iteration** over `states` until  Δ < ε (stores `vi_sweeps`, `last_vi_delta`).  
+5. **Greedy policy extraction**       (stores `policy_updates_last`).  
+6. **Instrumentation** print:  |S|, sweeps, final Δ, policy updates.
+
+Unit test  &  sweep scripts
+---------------------------
+* `tests/test_dp_agent_tiny.py`  verifies that the computed *V* satisfies  
+  `(I − γP)V = R` on a 2×3 board, horizon 2.
+* `scripts/param_sweep.py`  logs scaling of |S|, run‑time, and convergence stats
+  for γ ∈ {0.7,0.8,0.9,0.95}, H ∈ {2..6} on a 3×4 board.
+
+Set `use_search=True` / `use_heuristics=True` to re‑enable progressive beam
+search and positional bonuses for strong play; leave them **False** for pure
+linear‑algebra experiments.
+--------------------------------------------------------------------------
+"""
+
 # TODO: add an initial state setting, so we can test the agent in terminal and near terminal states with fewer available moves
 # TODO: figure out if the recursive nature of the bellman equation is supposed to reduce to a smaller system for each turn. (what we have seems correct)
 # TODO: fill compute_bellman_equation with the correct equations, currently just returns a placeholder - this will let us see the linear systems for the 7 available moves. 
@@ -20,7 +74,7 @@ class DPAgent:
     """
     
     def __init__(self, discount_factor: float = 0.9995, epsilon: float = 0.001, horizon: int = 18, beam_width: int = 800,
-                 use_heuristics: bool = True, use_search: bool = True):
+                 use_heuristics: bool = True, use_search: bool = True, verbose: bool = True):
         """
         Initialize the DP agent.
         
@@ -44,12 +98,12 @@ class DPAgent:
         self.values = {}  # State -> value mapping (V(s))
         self.policy = {}  # State -> action mapping
         self.linear_systems = {}  # State -> linear system mapping
-        
+
         # Cache for transposition table
         self.eval_cache = {}  # State hash -> reward value
         self.cache_hits = 0
         self.cache_misses = 0
-        
+
         # Statistics for analysis
         self.states_explored = 0
         self.iterations_performed = 0
@@ -67,7 +121,9 @@ class DPAgent:
         # ------------------------------------------------------------------
         self.all_states: Set[GameState] = set()
         self.state_index: Dict[GameState, int] = {}
-        
+
+        self.verbose = verbose         # master flag for console output
+
         # Initialize the agent
         self.reset()
         print(f"Agent initialized. Ready for online learning with horizon={horizon}, beam_width={beam_width}, gamma={discount_factor}.")
@@ -95,6 +151,15 @@ class DPAgent:
     def set_use_search(self, flag: bool) -> None:
         """Enable/disable progressive beam search and defensive overrides."""
         self.use_search = flag
+
+    def set_verbose(self, flag: bool) -> None:
+        """Enable or disable most console printing."""
+        self.verbose = flag
+
+    def _vprint(self, *args, **kwargs):
+        """Verbose‑controlled print."""
+        if self.verbose:
+            print(*args, **kwargs)
 
     def _initialize_state(self, state: GameState) -> None:
         """Initialize a new state with default values and policy."""
@@ -169,9 +234,9 @@ class DPAgent:
         current_player = state.turn + 1  # Convert from 0/1 to 1/2
         player_perspective = "MAXIMIZE" if current_player == 2 else "MINIMIZE"
         
-        print(f"\nAgent is Player {current_player} (perspective: {player_perspective})")
+        self._vprint(f"\nAgent is Player {current_player} (perspective: {player_perspective})")
         if not self.use_search:
-            print("  [search extras DISABLED – DP‑only mode]")
+            self._vprint("Â  [search extras DISABLED â€“ DP-only mode]")
         
         # If no valid actions, return -1 (should never happen in a normal game)
         if not valid_actions:
@@ -716,14 +781,14 @@ class DPAgent:
             
             # Print progress periodically
             if iteration % 10 == 0:
-                print(f"Value iteration: {iteration} iterations, delta={delta:.6f}")
+                self._vprint(f"Value iteration: {iteration} iterations, delta={delta:.6f}")
         
         # Save final delta for stats
         self.last_vi_delta = delta
         # Print some debugging info about convergence
         if len(last_deltas) > 1:
             avg_delta = sum(last_deltas) / len(last_deltas)
-            print(f"Value iteration converged after {iteration} iterations. Final delta={delta:.6f}, avg={avg_delta:.6f}")
+            self._vprint(f"Value iteration converged after {iteration} iterations. Final delta={delta:.6f}, avg={avg_delta:.6f}")
     
     def policy_extraction(self, states: Set[GameState]) -> None:
         """
@@ -798,7 +863,7 @@ class DPAgent:
                           f"old={old_action+1} (value={action_values.get(old_action, 'N/A')}), "
                           f"new={best_action+1} (value={action_values.get(best_action, 'N/A')})")
         
-        print(f"Policy extraction complete. Updated {policy_updates} states out of {len(states)}.")
+        self._vprint(f"Policy extraction complete. Updated {policy_updates} states out of {len(states)}.")
     
     def _get_reward(self, state: GameState) -> float:
         """
