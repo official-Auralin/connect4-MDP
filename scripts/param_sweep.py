@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""
+Parameter sweep for DPAgent on a 3×4 board (DP-only mode).
+
+Iterates over:
+  • gammas   = [0.7, 0.8, 0.9, 0.95]
+  • horizons = [2, 3, 4, 5, 6]
+
+Logs:
+  |S|   – number of states enumerated
+  iter  – value-iteration iterations
+  time  – wall-clock runtime
+"""
+import sys, pathlib
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
+
+import time
+import itertools
+import numpy as np
+from dp_agent import DPAgent, GameState, GameBoard
+
+
+def run_one(gamma: float, horizon: int) -> None:
+    agent = DPAgent(discount_factor=gamma,
+                    use_heuristics=False,
+                    use_search=False)
+
+    board = np.zeros((3, 4))
+    game_board = GameBoard(rows=3, cols=4)
+    root = GameState(board, 0, game_board)
+
+    agent.horizon = horizon
+
+    t0 = time.perf_counter()
+    agent._dp_plan_simple(root)
+    t1 = time.perf_counter()
+
+    num_states = len(agent.all_states)
+    iterations  = agent.iterations_performed
+    elapsed     = t1 - t0
+
+    print(f"γ={gamma:4.2f}  H={horizon:2d}  "
+          f"|S|={num_states:4d}  iter={iterations:3d}  "
+          f"time={elapsed:6.3f}s")
+
+
+def main():
+    gammas   = [0.7, 0.8, 0.9, 0.95]
+    horizons = [2, 3, 4, 5, 6]
+
+    print("Parameter sweep (DP-only mode, 3×4 board)")
+    for g, h in itertools.product(gammas, horizons):
+        run_one(g, h)
+
+
+if __name__ == "__main__":
+    main()
