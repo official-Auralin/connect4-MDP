@@ -234,6 +234,7 @@ class ConnectGame:
         Directs the game renderer to 'render' the game state to the audio and video devices.
         """
         self.renderer.draw(self.game_data)
+        
 
     def print_board(self):
         """
