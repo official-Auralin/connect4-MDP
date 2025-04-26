@@ -151,7 +151,7 @@ while running:
     current_settings_text = f"Game: {'4x3 Connect 3' if selected_size == (4, 3, 3) else '7x6 Connect 4'} | Mode: {selected_mode.upper()}"
     message_display(current_settings_text, YELLOW, 350, 180, 25)
     
-    button_width = 300
+    button_width = 450
     button_height = 50
     button_x = (700 - button_width) // 2  # Center horizontally
     
