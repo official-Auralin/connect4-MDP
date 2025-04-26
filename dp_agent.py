@@ -27,7 +27,7 @@ Markov Decision Process
 • **Action space  (A(s))**  –  Legal columns that are not full in state *s*.
 
 • **Transition  (T)**  –  Deterministic.
-    `s' = s.apply_action(a)` drops the current player’s piece in column *a*.
+    `s' = s.apply_action(a)` drops the current player's piece in column *a*.
 
 • **Reward  (R)**  –  Deterministic, zero‑sum:  
     *  +200 if P2 wins in *s'*,  
@@ -79,7 +79,7 @@ class DPAgent:
     """
     
     def __init__(self, discount_factor: float = 0.9995, epsilon: float = 0.001, horizon: int = DEFAULT_HORIZON, beam_width: int = 800,
-                 use_heuristics: bool = True, use_search: bool = True, verbose: bool = True):
+                 use_heuristics: bool = True, use_search: bool = False, verbose: bool = True):
         """
         Initialize the DP agent.
         
@@ -216,95 +216,107 @@ class DPAgent:
             print(f"=== END CANDIDATES ===\n")
         
     def choose_action(self, game_state: Dict) -> int:
-        """Choose an action based on the current state."""
-        # Convert dictionary game state to our GameState object
+        """
+        Pick an action using complete linear-algebra MDP solution.
+        This uses the full state enumeration and linear algebra approach
+        to find the exactly optimal policy.
+        """
         state = self._convert_to_game_state(game_state)
+        t0 = time.time()
         
-        # Check if this is a small board (toy problem)
-        num_rows, num_cols = state.board.shape
-        is_toy_problem = (num_rows <= 3 and num_cols <= 4)
+        # Get board dimensions (for diagnostic purposes)
+        rows, cols = state.board.shape
         
-        if is_toy_problem:
-            print("Detected small board - using linear algebra approach")
-            # Use the agent's current horizon setting for the toy run
-            policy, values = self.run_toy_problem(num_rows, num_cols, horizon=self.horizon)
-            if state in policy:
-                return policy[state]
-            # Fall back to regular method if policy doesn't have this state
+        # Save current settings
+        original_beam = self.beam_width
+        original_horizon = self.horizon
+        original_heuristics = self.use_heuristics
         
-        # Existing choose_action logic...
-        # (rest of the method unchanged)
-        start_time = time.time()
+        # Configure for full state space enumeration
+        self.beam_width = float('inf')  # No beam search limitation
+        self.horizon = 12  # Use larger horizon to ensure full state space
+        self.use_heuristics = False  # Pure rewards without positional bonuses
         
-        valid_actions = state.get_valid_actions()
-        current_player = state.turn + 1  # Convert from 0/1 to 1/2
-        player_perspective = "MAXIMIZE" if current_player == 2 else "MINIMIZE"
+        # Run policy iteration on the full state space
+        policy, values = self.solve_game_with_linear_algebra(state)
         
-        self._vprint(f"\nAgent is Player {current_player} (perspective: {player_perspective})")
-        if not self.use_search:
-            self._vprint("Â  [search extras DISABLED â€“ DP-only mode]")
+        # Get the action for current state
+        action = policy.get(state, None)
         
-        # If no valid actions, return -1 (should never happen in a normal game)
-        if not valid_actions:
-            return -1
+        # Restore original settings
+        self.beam_width = original_beam
+        self.horizon = original_horizon
+        self.use_heuristics = original_heuristics
+        
+        print(f"[full linear-algebra] enumerated {len(values)} states")
             
-        # IMPORTANT: We no longer skip the MDP for hardcoded openings or defensive moves
-        # This ensures the mathematical structure of the MDP is preserved
-        
-        # Comment out hardcoded opening moves to ensure MDP is always used
-        # empty_count = np.count_nonzero(state.board == 0)
-        # if empty_count >= 41:  # First move or nearly first move
-        #     # If center is available, always take it
-        #     if 3 in valid_actions:
-        #         print("Opening move: Taking center column")
-        #         return 3
-        #     # If center is taken, take adjacent column
-        #     elif 2 in valid_actions:
-        #         print("Opening move: Taking column adjacent to center")
-        #         return 2
-                
-        # PHASE 1: STRATEGIC SEARCH - Always perform full policy iteration first
-        if self.use_search:
-            print("Performing online policy iteration with progressive beam widening...")
-            self.online_policy_iteration_progressive(state)
+        # For larger boards, we previously used beam search, but now we use the linear algebra approach
+        # for all boards regardless of size
+        # (Below code is commented out as we now use only the linear algebra approach)
+        """
         else:
-            print("Performing pure DP planning...")
-            self._dp_plan_simple(state)
-        
-        # Get the best action from the policy
-        mdp_action = self.policy.get(state, None)
-        
-        # Print linear system for this state - now using the separate method
+            # For larger boards, use the standard planning approach
+            self.plan_linear(state)  # Uses beam search and limited horizon
+            action = self.policy.get(state, None)
+        """
+            
+        # Fallback: if something went wrong, choose a random legal move
+        if action is None or action not in state.get_valid_actions():
+            print("Warning: policy did not return a legal action; falling back to random.")
+            action = random.choice(state.get_valid_actions())
+
+        # Display Bellman one‑step backup for transparency
         self.print_linear_system(game_state)
-        
-        # If no policy available, evaluate actions directly
-        if mdp_action is None or mdp_action not in valid_actions:
-            print("Policy not available for current state. Evaluating actions directly...")
-            mdp_action = self._evaluate_actions(state, valid_actions)
-        else:
-            print(f"MDP policy chose column {mdp_action+1}")
-            
-        # PHASE 2: DEFENSIVE CHECK - Validate the MDP's decision
-        # This is now a safety check AFTER the MDP has run, not a replacement for it
-        defensive_action = self._defensive_search(state) if self.use_search else None
-        final_action = defensive_action if defensive_action is not None else mdp_action
-        
-        # If the defensive action overrides the MDP's choice, log this
-        if defensive_action is not None and defensive_action != mdp_action:
-            print(f"MDP chose column {mdp_action+1}, but defensive check overrode with column {defensive_action+1}")
-        else:
-            print(f"Final decision: column {final_action+1}")
-        
-        end_time = time.time()
-        print(f"Decision took {end_time - start_time:.3f} seconds. Explored {self.states_explored} states.")
-        
-        # Reset cache stats for next move
-        cache_hit_rate = self.cache_hits / (self.cache_hits + self.cache_misses) * 100 if (self.cache_hits + self.cache_misses) > 0 else 0
-        print(f"Cache performance: {self.cache_hits} hits, {self.cache_misses} misses ({cache_hit_rate:.1f}% hit rate)")
-        self.cache_hits = 0
-        self.cache_misses = 0
-        
-        return final_action
+
+        elapsed = time.time() - t0
+        print(f"[decision made] in {elapsed:.3f}s  |S|={len(self.all_states)}")
+        return action
+    # ------------------------------------------------------------------
+    # Full policy‑iteration using a linear solve each loop
+    # ------------------------------------------------------------------
+    def plan_linear(self, root: GameState) -> None:
+        """
+        Solve for the optimal policy on the subtree reachable from `root`
+        (up to self.horizon) using classic policy‑iteration:
+
+            1. enumerate states (size |S|)
+            2. initialise π randomly
+            3. repeat
+                (a) V ← (I‑γPπ)⁻¹ Rπ       # single linear solve
+                (b) improve π greedily      # max/min
+            until π stabilises
+        """
+        states = self.enumerate_reachable_states(root, self.horizon)
+        self._set_global_state_index(states)
+
+        # --- random deterministic policy for all non‑terminal states
+        policy: Dict[GameState, int] = {}
+        for s in states:
+            if (not s.is_terminal()) and s.get_valid_actions():
+                policy[s] = random.choice(s.get_valid_actions())
+
+        # --- policy‑iteration main loop
+        stable = False
+        while not stable:
+            V = self.policy_evaluate_linear(policy, states)   # linear solve
+            stable = True
+            for s in policy:
+                best_a, best_v = None, None
+                for a in s.get_valid_actions():
+                    sprime = s.apply_action(a)
+                    r = self._get_reward(sprime)
+                    v = r if sprime.is_terminal() else r + self.gamma * V[sprime]
+                    if (s.turn == 0 and (best_v is None or v > best_v)) or \
+                       (s.turn == 1 and (best_v is None or v < best_v)):
+                        best_a, best_v = a, v
+                if best_a != policy[s]:
+                    policy[s] = best_a
+                    stable = False
+
+        # commit results
+        self.policy.update(policy)
+        self.values.update(V)
+        self.print_stats("Linear‑solve summary")
     
     def _defensive_search(self, state: GameState) -> Optional[int]:
         """
@@ -862,12 +874,9 @@ class DPAgent:
                 self.policy[state] = best_action
                 policy_updates += 1
                 self.policy_updates_last += 1
-                
-                # Debug output for significant policy changes
-                if old_action is not None:
-                    print(f"Policy updated for state: turn={state.turn+1}, " 
-                          f"old={old_action+1} (value={action_values.get(old_action, 'N/A')}), "
-                          f"new={best_action+1} (value={action_values.get(best_action, 'N/A')})")
+                # Verbose diagnostic (rate‑limited to avoid console flooding)
+                if self.verbose and self.policy_updates_last <= 20:
+                    self._vprint(f"Policy updated ({self.policy_updates_last}/{len(states)})")
         
         self._vprint(f"Policy extraction complete. Updated {policy_updates} states out of {len(states)}.")
     
@@ -971,7 +980,7 @@ class DPAgent:
         
         # Prefer center control - use appropriate center column based on board size
         center_col = num_cols // 2  # Middle column
-        center_control = sum(1 for row in range(num_rows) if board[row][center_col] == current_player)
+        center_control = sum(1 for row in range(num_rows) if row < num_rows and board[row][center_col] == current_player)
         reward += center_control * 5.0
         
         # Opponent center control is dangerous
@@ -991,7 +1000,16 @@ class DPAgent:
         
         # Add a small penalty to encourage faster wins
         reward -= 0.01
-        
+
+        # ------------------------------------------------------------------
+        # Normalise sign: positive numbers should ALWAYS favour Player 2
+        # (the maximiser).  If the current player is Player 1 (the minimiser),
+        # flip the sign so that identical board patterns are evaluated
+        # symmetrically from the opponent's perspective.
+        # ------------------------------------------------------------------
+        if current_player == 1:
+            reward = -reward
+
         # Cache the reward
         self.eval_cache[state_hash] = reward
         return reward
@@ -1264,6 +1282,40 @@ class DPAgent:
         self.policy_extraction(states)
         # Show instrumentation summary
         self.print_stats("DP‑only summary")
+    
+    # ------------------------------------------------------------------
+    # Prepare and then print Bellman table for an arbitrary position
+    # ------------------------------------------------------------------
+    def analyze_position(self, game_state_or_state) -> None:
+        """
+        Run linear algebra solving for `game_state_or_state` (which may be either
+        the raw dict used by the UI OR an already‑constructed GameState)
+        and immediately print the Bellman candidate table.
+        """
+        # Accept both dictionary and GameState objects
+        if isinstance(game_state_or_state, GameState):
+            state = game_state_or_state
+            game_state_dict = {
+                'board': state.board,
+                'turn':  state.turn,
+                'game_board': state.game_board
+            }
+        else:  # assume dict
+            game_state_dict = game_state_or_state
+            state = self._convert_to_game_state(game_state_dict)
+
+        # Run full linear algebra solution
+        policy, values = self.solve_game_with_linear_algebra(state)
+        
+        # Make sure all the computed values are in self.values
+        self.values.update(values)
+        
+        # Display Bellman one-step backup for transparency
+        self.print_linear_system(game_state_dict)
+        
+        # Print statistics
+        self.print_stats("Linear algebra summary")
+    
     # ------------------------------------------------------------------
     # Pretty‑print instrumentation after a DP run
     # ------------------------------------------------------------------
@@ -1277,38 +1329,51 @@ class DPAgent:
               f"policy updates={self.policy_updates_last}")
 
     def visualize_policy_matrices(self, policy, states):
-        """Visualize transition and reward matrices for a given policy."""
+        """Pretty-print (P, R) and the solved value vector for a policy.
+
+        • policy is a dict {state -> chosen action}
+        • states is the finite set S we are analysing (order irrelevant).
+
+        The function builds deterministic transition matrix P_π and reward
+        vector R_π, then prints:
+            – P (as a 0/1 array)
+            – R
+            – V = (I − γP)⁻¹ R
+        and finally displays I − γP for convenience so you can eyeball the
+        linear system being solved.
+        """
+
         n = len(states)
-        index = {s:i for i,s in enumerate(states)}
-        P = np.zeros((n,n))
+        index = {s: i for i, s in enumerate(states)}
+
+        P = np.zeros((n, n))
         R = np.zeros(n)
-        
-        # Build matrices
+
         for s in states:
             i = index[s]
             if s in policy and policy[s] is not None:
                 a = policy[s]
-                next_state = s.apply_action(a)
-                R[i] = self._get_reward(next_state)
-                if not next_state.is_terminal():
-                    if next_state in index:  # Only include states in our set
-                        j = index[next_state]
-                        P[i,j] = 1.0
-        
-        # Print matrices in a readable format
+                s_prime = s.apply_action(a)
+                R[i] = self._get_reward(s_prime)
+                if not s_prime.is_terminal() and s_prime in index:
+                    P[i, index[s_prime]] = 1.0  # deterministic transition
+
         print(f"\nTransition matrix P (size: {P.shape}):")
         print(P)
         print(f"\nReward vector R (size: {R.shape}):")
         print(R)
-        
-        # Calculate and display V = (I - γP)^-1 R
+
         try:
             I = np.eye(n)
-            V = np.linalg.solve(I - self.gamma*P, R)
+            V = np.linalg.solve(I - self.gamma * P, R)
             print("\nValue vector V:")
             print(V)
         except np.linalg.LinAlgError as e:
             print(f"Error solving linear system: {e}")
+
+        # For quick inspection of the linear system
+        print("\nI - γP =")
+        print(np.eye(n) - self.gamma * P)
 
     def policy_iteration_linear(self, start_state, horizon: int | None = None):
         """
@@ -1441,97 +1506,51 @@ class DPAgent:
                     P[i, index[sprime]] = 1.0
         return P, R
 
-    def run_toy_problem(self, rows=3, cols=4, horizon=12):
-        """Run a small toy problem using linear algebra approach."""
-        # --- Temporarily turn off positional heuristics for this clean experiment ---
+    def solve_game_with_linear_algebra(self, start_state, horizon: int = 12):
+        """
+        Solve the game completely using linear algebra.
+        This enumerates all reachable states and computes the exact optimal policy
+        using policy iteration with direct linear algebra.
+        
+        Args:
+            start_state: The current game state
+            horizon: Maximum depth to explore (default 12 to ensure complete game exploration)
+            
+        Returns:
+            Tuple of (policy, values)
+        """
+        # Get board dimensions from state for diagnostic purposes
+        rows, cols = start_state.board.shape
+        
+        # Temporarily turn off positional heuristics for clean linear algebra
         original_heuristic_flag = self.use_heuristics
         self.use_heuristics = False
-        # Create a small initial board
-        board = np.zeros((rows, cols))
-        game_board = GameBoard(rows=rows, cols=cols)
-        start_state = GameState(board, 0, game_board)
         
-        print(f"\n=== RUNNING TOY PROBLEM: {rows}x{cols} board with horizon {horizon} ===")
-        print("Initial board:")
-        print(board)
-        
-        # Completely disable beam search, caching, and other optimizations
+        # Disable beam search and other approximations
         original_beam = self.beam_width
         original_horizon = self.horizon
         self.beam_width = float('inf')  # No beam search limitation
         self.horizon = horizon
         
-        # Clear existing values and policy
+        # Clear existing values and policy for a fresh computation
         self.values = {}
         self.policy = {}
+        
+        print(f"\n=== SOLVING {rows}x{cols} BOARD WITH LINEAR ALGEBRA (horizon={horizon}) ===")
         
         # Run our linear algebra policy iteration
         policy, values = self.policy_iteration_linear(start_state, horizon)
         
-        # Print the policy for the starting state
-        if start_state in policy:
-            best_action = policy[start_state]
-            print(f"\nBest action for starting state: {best_action+1}")
-            print(f"Value: {values.get(start_state, 'Unknown')}")
-        else:
-            print("\nNo policy found for starting state")
-
         # Register the full state set for later helpers
         self._set_global_state_index(set(values.keys()))
         
-        # ---------------------------------------------------------------------------
-        # Restore original heuristic setting, beam_width, and horizon
+        # Restore original settings
         self.beam_width = original_beam
         self.horizon = original_horizon
         self.use_heuristics = original_heuristic_flag
         
         return policy, values
 
-    def compare_with_minimax(self, state, depth: int = 3):
-        """Compare our linear algebra solution with minimax."""
-        print("\n=== COMPARING WITH MINIMAX ===")
-        
-        # Run minimax
-        minimax_value, minimax_action = self._minimax(state, depth, True)
-        
-        # Run our linear policy iteration
-        policy, values = self.policy_iteration_linear(state, depth)
-        linear_value = values.get(state, 0.0)
-        linear_action = policy.get(state, None)
-        
-        print(f"Minimax: action={minimax_action+1}, value={minimax_value}")
-        print(f"Linear: action={linear_action+1 if linear_action is not None else None}, value={linear_value}")
-        
-        return minimax_action == linear_action
-        
-    def _minimax(self, state, depth, maximizing):
-        """Simple minimax implementation for comparison."""
-        if depth == 0 or state.is_terminal():
-            return self._get_reward(state), None
-        
-        valid_actions = state.get_valid_actions()
-        if not valid_actions:
-            return 0, None
-            
-        best_action = None
-        if maximizing:
-            value = float('-inf')
-            for action in valid_actions:
-                next_state = state.apply_action(action)
-                child_value, _ = self._minimax(next_state, depth-1, False)
-                if child_value > value:
-                    value = child_value
-                    best_action = action
-        else:
-            value = float('inf')
-            for action in valid_actions:
-                next_state = state.apply_action(action)
-                child_value, _ = self._minimax(next_state, depth-1, True)
-                if child_value < value:
-                    value = child_value
-                    best_action = action
-                    
-        return value, best_action
     def get_bellman_candidates(self, state: GameState) -> Dict[int, Dict[str, float]]:
         """
         For each valid action a in state s, return a dictionary with the pieces
@@ -1581,3 +1600,28 @@ class DPAgent:
             }
 
         return candidates
+        
+    # DEPRECATED: Kept for reference but renamed to indicate it's no longer the primary method
+    def run_toy_problem(self, rows=3, cols=4, horizon=12):
+        """DEPRECATED: Use solve_game_with_linear_algebra instead."""
+        # Create a small initial board
+        board = np.zeros((rows, cols))
+        game_board = GameBoard(rows=rows, cols=cols)
+        start_state = GameState(board, 0, game_board)
+        
+        print(f"\n=== RUNNING TOY PROBLEM: {rows}x{cols} board with horizon {horizon} ===")
+        print("Initial board:")
+        print(board)
+        
+        # Call the new method
+        policy, values = self.solve_game_with_linear_algebra(start_state, horizon)
+        
+        # Print the policy for the starting state (for backward compatibility)
+        if start_state in policy:
+            best_action = policy[start_state]
+            print(f"\nBest action for starting state: {best_action+1}")
+            print(f"Value: {values.get(start_state, 'Unknown')}")
+        else:
+            print("\nNo policy found for starting state")
+            
+        return policy, values
