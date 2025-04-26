@@ -1,218 +1,190 @@
-<div align=center>
+# Connect4 MDP - Solving Connect Four with Markov Decision Processes
 
-<p>
-  <img src="./images/logo/c4.gif">
-</p>
-
-[![Open Issues](https://img.shields.io/github/issues/code-monk08/connect-four?style=for-the-badge&logo=github)](https://github.com/code-monk08/connect-four/issues)  [![Forks](https://img.shields.io/github/forks/code-monk08/connect-four?style=for-the-badge&logo=github)](https://github.com/code-monk08/connect-four/network/members)  [![Stars](https://img.shields.io/github/stars/code-monk08/connect-four?style=for-the-badge&logo=reverbnation)](https://github.com/code-monk08/connect-four/stargazers)  ![Maintained](https://img.shields.io/maintenance/yes/2019?style=for-the-badge&logo=github)  ![Made with Python](https://img.shields.io/badge/Made%20with-Python-blueviolet?style=for-the-badge&logo=python)  ![Open Source Love](https://img.shields.io/badge/Open%20Source-%E2%99%A5-red?style=for-the-badge&logo=open-source-initiative)  ![Built with Love](https://img.shields.io/badge/Built%20With-%E2%99%A5-critical?style=for-the-badge&logo=ko-fi)  [![Follow Me](https://img.shields.io/twitter/follow/codemonk08_?color=blue&label=Follow%20%40codemonk08_&logo=twitter&style=for-the-badge)](https://twitter.com/intent/follow?screen_name=codemonk08_) 
-[![GitHub followers](https://img.shields.io/github/followers/code-monk08.svg?label=Follow&style=for-the-badge&logo=github)](https://github.com/code-monk08/)  [![Slack](https://img.shields.io/badge/Slack-Chat-informational?style=for-the-badge&logo=slack)](https://join.slack.com/t/connectfourgroup/shared_invite/enQtODMxNTAwNDY4NDU0LTZmYTZkMzJiNWQwZDk1YjhlZTEzY2VhMDNkNjVhOGIzNGIyNmYxODM4NWI5MjNjYmJlZjk4MjA4MzQ3MjZhNDg)
-
+<div align="center">
+<img src="./images/logo/c4.gif" alt="Connect Four Logo">
 </div>
 
-## :ledger: Index
+## About
 
-- [About](#beginner-about)
-- [Features](#page_facing_up-features)
-- [Usage](#zap-usage)
-  - [Installation](#electric_plug-installation)
-  - [Commands](#package-commands)
-- [File Structure](#file_folder-file-structure)
-- [Community](#cherry_blossom-community)
-  - [Contribution](#fire-contribution)
-  - [Branches](#cactus-branches)
-- [Guideline](#exclamation-guideline)  
-- [Resources](#page_facing_up-resources)
-- [Gallery](#camera-gallery)
-- [Credit/Acknowledgment](#star2-creditacknowledgment)
-- [License](#lock-license)
-- [Hall Of Fame](#sparkles-hall-of-fame)
+This project implements a Connect Four game with an AI agent that uses Markov Decision Processes (MDPs) and linear algebra to make optimal decisions. The AI uses value iteration and direct linear system solving to calculate the optimal policy, making it a powerful opponent that can see several moves ahead.
 
-##  :beginner: About
-Connect Four is a two-player connection game in which the players first choose a color and then take turns dropping one colored disc from the top into a seven-column, six-row vertically suspended grid. The pieces fall straight down, occupying the lowest available space within the column. The objective of the game is to be the first to form a horizontal, vertical, or diagonal line of four of one's own discs.
+The original Connect Four game was created by [Mayank Singh (code-monk08)](https://github.com/code-monk08/connect-four). This project extends the original by adding an MDP-based AI opponent using dynamic programming and linear algebra techniques.
 
-##  :page_facing_up: Features
- - 2 player interactive game
- - Supports undo operation
- - Supports interactive game sounds
- - Ability to play with computer AI (in development phase)
- - Multiplayer on local network using sockets (in development phase)
- - Ability to customize game theme (in development phase)
- - Cross platform Linux, Windows, Mac (in development phase)
+## Mathematical Foundation
 
-## :zap: Usage
-To use this project.
+### Markov Decision Processes (MDPs)
 
-###  :electric_plug: Installation
-- Install dependencies & export environment variables.
+An MDP is a mathematical framework for modeling decision-making in situations where outcomes are partly random and partly under the control of a decision-maker. Formally, an MDP consists of:
 
+- **State space (S)**: All possible game configurations
+- **Action space (A)**: Legal moves (columns) for each state
+- **Transition function (T)**: Deterministic in Connect Four - placing a piece results in a specific new state
+- **Reward function (R)**: Values assigned to states (+200 for win, -200 for loss, 0 for draw)
+- **Discount factor (γ)**: Values future rewards less than immediate ones (default: 0.95)
+
+### The Bellman Equation
+
+The value of a state is defined by the Bellman equation:
+
+```
+V(s) = max_a [ R(s,a) + γ * V(T(s,a)) ]
+```
+
+Where:
+- V(s) is the value of state s
+- R(s,a) is the reward for taking action a in state s
+- T(s,a) is the next state after taking action a in state s
+- γ is the discount factor
+
+### Linear Algebra Formulation
+
+For finite MDPs, we can represent the Bellman equation as a system of linear equations:
+
+```
+V = R + γPV
+```
+
+Which can be rearranged as:
+
+```
+(I - γP)V = R
+```
+
+Where:
+- V is the vector of state values
+- R is the vector of rewards
+- P is the transition probability matrix
+- I is the identity matrix
+
+The solution is:
+
+```
+V = (I - γP)⁻¹R
+```
+
+This direct matrix inversion is more efficient than iterative methods for certain problem sizes and allows for exact solutions to the MDP.
+
+### Value Iteration vs. Linear System Solving
+
+This project implements both classic value iteration (an iterative method) and direct linear system solving:
+
+1. **Value Iteration**: Iteratively updates state values until convergence
+   - Pros: Works well for large state spaces, low memory requirements
+   - Cons: May require many iterations to converge
+
+2. **Linear System Solving**: Directly solves (I - γP)V = R
+   - Pros: Gets exact solution in one step, faster for small to medium problems
+   - Cons: Requires more memory, less practical for very large state spaces
+
+## Features
+
+- Full Connect Four game implementation with customizable board sizes
+- Dynamic Programming MDP agent with configurable parameters
+- Value iteration and linear algebra solving approaches
+- Interactive game modes: Player vs Player, Player vs Agent, Agent vs Agent
+- Supports multiple board sizes (standard 7×6 Connect 4 or smaller variants)
+- Detailed Bellman equation visualization for educational purposes
+- Unit tests and parameter sweep scripts for validation
+
+## Installation
+
+1. Clone the repository:
 ```bash
-$ sudo -H pip3 install -r requirements.txt
+git clone https://github.com/official-Auralin/connect4-MDP.git
+cd connect4-MDP
 ```
-###  :package: Commands
-- Start project using
+
+2. Install dependencies:
 ```bash
-$ python3 game.py
+pip install -r requirements.txt
 ```
 
-##  :file_folder: File Structure
-- Add a file structure here with the basic details about files, below is current file structure.
+## Usage
 
-```
-.
-├── assets.py
-├── CODE_OF_CONDUCT.md
-├── config.py
-├── _config.yml
-├── connect_game.py
-├── events.py
-├── game_board.py
-├── game_data.py
-├── game.py
-├── game_renderer.py
-├── images
-│   ├── blackball91px.png
-│   ├── game.svg
-│   ├── logo
-│   │   ├── c4.gif
-│   │   ├── connect4.gif
-│   │   └── connect4.png
-│   ├── redball90px.png
-│   ├── screenshots
-│   │   ├── 1.png
-│   │   └── 2.gif
-│   └── yellowball90px.png
-├── LICENSE
-├── README.md
-├── requirements.txt
-├── restart.sh
-└── sounds
-    ├── disc_drop_1.wav
-    ├── disc_drop_2.wav
-    └── event.ogg
+### Running the Game
 
-4 directories, 26 files
-```
-
-| No | File Name          | Details
-|----|--------------------|-------------------------------------------------------------------------------------|
-| 1.  | [assets.py](assets.py)          | used for loading sound and image files in python.
-| 2.  | [config.py](config.py)          | contains game's configuration settings.
-| 3.  | [connect_game.py](connect_game.py)    | Contains the ConnectGame class which holds the logic for the whole game.
-| 4.  | [events.py](events.py)          | Contains classes used to define and hold event data.
-| 5.  | [game_board.py](game_board.py)      | Contains the GameBoard data structure and methods which operate on it.
-| 6.  | [game_data.py](game_data.py)       | Contains the GameData class, which contains all of the data in the game.
-| 7.  | [game_renderer.py](game_renderer.py)   | Holds the GameRenderer class, which renders the game state using sound and graphics.
-| 8.  | [game.py](game.py)            | contains connect four game logic.
-| 9.  | [images/](https://github.com/code-monk08/connect4/tree/master/images)            | contains image resources used in the game.
-| 10. | [images/logo/](https://github.com/code-monk08/connect4/tree/master/images/logo)        | contains logo used in the README.
-| 11. | [images/screenshots/](https://github.com/code-monk08/connect4/tree/master/images/screenshots) | contains game screenshots.
-| 12. | [LICENSE](LICENSE)            | this project uses MIT License.
-| 13. | [requirements.txt](requirements.txt)   | contains all the dependencies used in the game.
-| 14. | [restart.sh](restart.sh)         | bash script to relaunch the game once it is finished.
-| 15. | [sounds/](https://github.com/code-monk08/connect4/tree/master/sounds)            | contains sound resources used in the game.
-| 16. | [CODE_OF_CONDUCT.md](https://github.com/code-monk08/connect4/blob/master/CODE_OF_CONDUCT.md) | tells about our responsibilities as a team
-- __Dependency Graph__
-
-<p align="center">
-  <img src="./images/game.svg" width="800">
-</p>
-
-##  :exclamation: Guideline
-
-- __Code Style__
-
-### `black`
-In order to maintain the code style consistency across entire project I use a code formatter. I kindly suggest you to do the same whenever you push commits to this project.
-
-The python code formatter I chose is called Black. It is a great tool and it can be installed quickly by running
-
+Launch the game with the GUI interface:
 ```bash
-sudo -H pip3 install black
+python game.py
 ```
 
-or
+### Testing the MDP Agent
 
+Test the agent in isolation:
 ```bash
-python3.6 -m pip install black
+python -c "from dp_agent import DPAgent; agent = DPAgent(); agent.run_toy_problem(rows=3, cols=4, horizon=6)"
 ```
 
-It requires Python 3.6.0+ to run.
-
-- __Usage__
-
+Analyze a specific position:
 ```bash
-black {source_file_or_directory}
+python -c "from dp_agent import DPAgent, GameState, GameBoard; import numpy as np; board = np.zeros((3, 4)); game_board = GameBoard(rows=3, cols=4); state = GameState(board, 0, game_board); agent = DPAgent(); agent.analyze_position(state)"
 ```
 
-For more details and available options, please check their [psf/black](https://github.com/psf/black).
+### Running Tests
 
-### `isort`
-I also use isort, it is a Python utility / library to sort imports alphabetically, and automatically separated into sections. It provides a command line utility which can be installed using.
-
+Run the unit tests to verify the MDP implementation:
 ```bash
-sudo -H pip3 install isort
+pytest tests/test_dp_agent_tiny.py
 ```
 
-- __Usage__
+### Parameter Sweep
 
+Run the parameter sweep script to analyze performance with different settings:
 ```bash
-isort {source_file}.py
+python scripts/param_sweep.py
 ```
 
-For more details and available options, please check their [timothycrosley/isort](https://github.com/timothycrosley/isort).
+## Implementation Details
+
+### MDP Formulation for Connect Four
+
+In our implementation, the Connect Four MDP is defined as:
+
+- **State space (S)**: Each `GameState` encodes:
+  - An `r × c` board (r∈[2,6], c∈[3,7]) with 0 = empty, 1 = Player1 (P1) piece, 2 = Player2 (P2)
+  - `turn ∈ {0,1}` (0 → P1 to play, 1 → P2)
+  - A reference to the `GameBoard` object
+
+- **Action space (A(s))**: Legal columns that are not full in state s
+
+- **Transition (T)**: Deterministic:
+  `s' = s.apply_action(a)` drops the current player's piece in column a
+
+- **Reward (R)**: Deterministic, zero-sum:
+  - +200 if P2 wins in s'
+  - -200 if P1 wins in s'
+  - 0 if draw
+  - -0.01 step cost otherwise (when use_heuristics=False)
+
+- **Discount factor (γ)**: Configurable (default 0.95)
+
+### DP Agent Pipeline
+
+1. **Enumerate** reachable states up to horizon H
+2. **Set global index** for states
+3. **Initialize** value function
+4. **Value-iteration** until convergence
+5. **Greedy policy extraction**
+6. **Output** state values and optimal actions
+
+## Differences from Original Project
+
+Our project extends the original Connect Four implementation in several key ways:
 
 
-- __Close Issues__
+1. **AI Opponent**: Added an MDP-based AI that uses dynamic programming for optimal play
+2. **Mathematical Framework**: Implemented the Bellman equation and linear system solving
+3. **Configurable Parameters**: Added tunable discount factor, horizon, and other MDP parameters
+4. **Theoretical Foundation**: Provided rigorous mathematical basis for AI decision-making
+5. **Educational Value**: Added visualization of Bellman backups for educational purposes
 
-Close issues using keywords: [how to ?](https://help.github.com/en/articles/closing-issues-using-keywords)
+**To see the original README.md**: view [README_old.md](./README_old.md) or visit the original repo at [code-monk08/connect-four](https://github.com/code-monk08/connect-four) for the latest version.
 
-## :cherry_blossom: Community
+## License
 
- ###  :fire: Contribution
+This project is licensed under the MIT License - see the LICENSE file for details.
 
- Your contributions are always welcome and appreciated. Following are the things you can do to contribute to this project.
+## Acknowledgments
 
- 1. **Report a bug** <br>
- If you think you have encountered a new issue, and I should know about it, feel free to report it [here](https://github.com/code-monk08/connect4/issues/new) and I will take care of it.
-
- 3. **Create a pull request** <br>
- It can't get better then this, your pull request will be appreciated by the community. You can get started by picking up any open issues from [here](https://github.com/code-monk08/connect4/issues) and make a pull request.
-
- > If you are new to open-source, make sure to check read more about it [here](https://www.digitalocean.com/community/tutorial_series/an-introduction-to-open-source) and learn more about creating a pull request [here](https://www.digitalocean.com/community/tutorials/how-to-create-a-pull-request-on-github).
-
- ### :cactus: Branches
-
-- No other permanent branches should be created in the main repository, you can create feature branches but they should get merged with the master.
-
-##  :page_facing_up: Resources
-- [PyGame Documentation](https://www.pygame.org/docs/) : Pygame is a cross-platform set of Python modules designed for writing video games. It includes computer graphics and sound libraries designed to be used with the Python programming language.
-
-##  :camera: Gallery
-<p align="center">
-  <img src="./images/screenshots/1.png" width="800">
-</p>
-<p align="center">Start Game Window</p>
-
-<p align="center">
-  <img src="./images/screenshots/2.png" width="800">
-</p>
-<p align="center">Game Play</p>
-
-<p align="center">
-  <img src="./images/screenshots/3.gif" width="800">
-</p>
-<p align="center">Game Play GIF</p>
-
-<p align="center">
-  <img src="./images/screenshots/4.png" width="800">
-</p>
-<p align="center">Restart or Quit as the Game ends.</p>
-
-## :star2: Credit/Acknowledgment
-[![Contributors](https://img.shields.io/github/contributors/code-monk08/connect-four?style=for-the-badge)](https://github.com/code-monk08/connect-four/graphs/contributors)
-
-##  :lock: License
-[![License](https://img.shields.io/github/license/code-monk08/connect-four?style=for-the-badge)](https://github.com/code-monk08/connect-four/blob/master/LICENSE)
-
-##  :sparkles: Hall Of Fame
-[![](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/images/0)](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/links/0)[![](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/images/1)](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/links/1)[![](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/images/2)](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/links/2)[![](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/images/3)](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/links/3)[![](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/images/4)](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/links/4)[![](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/images/5)](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/links/5)[![](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/images/6)](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/links/6)[![](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/images/7)](https://sourcerer.io/fame/code-monk08/code-monk08/connect4/links/7)
+- Original Connect Four implementation by [Mayank Singh (code-monk08)](https://github.com/code-monk08/connect-four)
+- The MDP framework is inspired by classical works in reinforcement learning and dynamic programming by Richard Bellman and other pioneers in the field 
