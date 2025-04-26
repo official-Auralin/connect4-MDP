@@ -7,7 +7,7 @@ from config import BLACK, BLUE, WHITE, RED, GREEN, YELLOW
 from connect_game import ConnectGame
 from events import MouseClickEvent, MouseHoverEvent, bus
 from game_data import GameData
-from game_renderer import GameRenderer
+from game_renderer import GameRenderer, console
 
 
 def quit():
@@ -50,6 +50,11 @@ def start(mode: str = 'pvp', board_size: tuple = None):
                     mods: int = pygame.key.get_mods()
                     if mods & pygame.KMOD_CTRL:
                         bus.emit("game:undo", game)
+
+            if event.type == pygame.MOUSEWHEEL:
+                game.renderer.scroll_index -= event.y
+                max_start = max(0, len(console.lines) - game.renderer.line_height)
+                game.renderer.scroll_index = max(0, min(game.renderer.scroll_index, max_start))
         
         # Update game state regardless of events
         game.update()
