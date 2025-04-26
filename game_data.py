@@ -88,12 +88,18 @@ class GameData:
         if mode in ['pva', 'ava']:
             # Create a new agent - no pre-training needed since it uses online learning
             if self.agent1 is None:
-                print("Initializing agent...")
-                self.agent1 = DPAgent()
+                print("Initializing agent (DP‑only mode)...")
+                # For linear‑algebra experiments we disable search extras & heuristics.
+                self.agent1 = DPAgent(discount_factor=0.95,
+                                      use_heuristics=False,
+                                      use_search=False)
             else:
                 # Reset the agent for a new game but preserve its learned values
                 print("Resetting agent for new game...")
                 self.agent1.reset()
+                # Ensure flags stay in DP‑only mode
+                self.agent1.set_use_heuristics(False)
+                self.agent1.set_use_search(False)
                 
         if mode == 'ava':
             # For agent vs agent, we'll use the same agent for both
