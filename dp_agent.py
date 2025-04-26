@@ -5,385 +5,12 @@ import random
 import time
 import math
 from game_board import GameBoard
+from game_state import GameState
 
-# TODO: figure out why the game is not printing a linear system for Player 1
-# TODO: modify game board to have a size setting and a win condition setting e.g., 4x3 and 3 in a row
 # TODO: add an initial state setting, so we can test the agent in terminal and near terminal states with fewer available moves
 # TODO: figure out if the recursive nature of the bellman equation is supposed to reduce to a smaller system for each turn. (what we have seems correct)
 # TODO: fill compute_bellman_equation with the correct equations, currently just returns a placeholder - this will let us see the linear systems for the 7 available moves. 
 # TODO: imshow in matplotlib can be used to visualize the board takes in a numpy array and displays it as a grid, will pull up a secondary GUI. 
-
-class GameState:
-    """
-    A wrapper class for game states that supports hashing and comparison.
-    This enables using GameState objects as dictionary keys for the MDP value function.
-    """
-    
-    def __init__(self, board: np.ndarray, turn: int, game_board: GameBoard = None):
-        """
-        Initialize a game state.
-        
-        Args:
-            board: The game board as a numpy array
-            turn: The player's turn (0 or 1)
-            game_board: Reference to GameBoard object (if available)
-        """
-        self.board = board.copy()  # Make a copy to ensure independence
-        self.turn = turn
-        
-        # Create a new GameBoard if none provided
-        if game_board is None:
-            # Get board dimensions from the array
-            rows, cols = board.shape
-            self.game_board = GameBoard(rows=rows, cols=cols)
-            self.game_board.board = board.copy()
-        else:
-            self.game_board = game_board
-            
-    def __hash__(self):
-        """
-        Generate a hash for the game state based on board configuration and turn.
-        This allows GameState objects to be used as dictionary keys.
-        """
-        # Convert board to tuple for hashing
-        board_tuple = tuple(map(tuple, self.board))
-        return hash((board_tuple, self.turn))
-        
-    def __eq__(self, other):
-        """Check if two game states are equal."""
-        if not isinstance(other, GameState):
-            return False
-        return (np.array_equal(self.board, other.board) and 
-                self.turn == other.turn)
-                
-    def is_terminal(self) -> bool:
-        """Check if this is a terminal state (win or draw)."""
-        # Check if previous player won
-        last_player = 3 - (self.turn + 1)  # Convert from 0/1 to 1/2
-        if self.game_board.winning_move(last_player):
-            return True
-            
-        # Check for a draw
-        if self.game_board.tie_move():
-            return True
-            
-        return False
-        
-    def get_valid_actions(self) -> List[int]:
-        """Get valid actions (columns) for this state."""
-        # Use game_board's columns count instead of hardcoded 7
-        return [col for col in range(self.game_board.cols) if self.game_board.is_valid_location(col)]
-    
-    def apply_action(self, action: int) -> 'GameState':
-        """
-        Apply an action to this state and return the resulting state.
-        
-        Args:
-            action: Column to drop piece in (0-6)
-            
-        Returns:
-            GameState: The new state after action
-        """
-        # Create a new game board for the next state
-        new_board = self.board.copy()
-        
-        # Create a new game board object with the same dimensions and win condition
-        rows, cols = self.board.shape
-        win_condition = getattr(self.game_board, 'win_condition', 4)  # Default to 4 if not available
-        new_game_board = GameBoard(rows=rows, cols=cols, win_condition=win_condition)
-        new_game_board.board = new_board
-        
-        # Find the next open row in the chosen column
-        row = new_game_board.get_next_open_row(action)
-        
-        # Place the piece
-        new_board[row][action] = self.turn + 1  # Convert from 0/1 to 1/2
-        
-        # Create and return the new state with updated turn
-        return GameState(new_board, (self.turn + 1) % 2, new_game_board)
-        
-    def get_key(self) -> str:
-        """
-        Get a string key representation for this state.
-        Used for debugging and display purposes only.
-        """
-        # Convert the board to a string representation
-        cols = []
-        num_rows, num_cols = self.board.shape
-        for col in range(num_cols):
-            column = ''.join(str(int(self.board[row][col])) for row in range(num_rows))
-            cols.append(column)
-        
-        # Join columns with '|' separator and combine with turn
-        return f"{self.turn}:{':'.join(cols)}"
-        
-    def check_for_immediate_threat(self, player: int) -> List[int]:
-        """
-        Check if there are any immediate threats (opponent can win next move).
-        
-        Args:
-            player: The player to check threats for
-            
-        Returns:
-            List[int]: List of columns where the player can win immediately
-        """
-        winning_moves = []
-        board = self.board
-        num_rows, num_cols = board.shape
-        win_condition = self.game_board.win_condition
-        
-        # Check each column
-        for col in range(num_cols):
-            # Skip if column is full
-            if not self.game_board.is_valid_location(col):
-                continue
-                
-            # Create a temporary board with correct dimensions and win condition
-            temp_board = board.copy()
-            temp_game_board = GameBoard(rows=num_rows, cols=num_cols, win_condition=win_condition)
-            temp_game_board.board = temp_board
-            
-            # Find the next open row in this column
-            row = temp_game_board.get_next_open_row(col)
-            
-            # Place the piece
-            temp_board[row][col] = player
-            
-            # Check if this creates a win
-            if temp_game_board.winning_move(player):
-                winning_moves.append(col)
-                
-        return winning_moves
-        
-    def check_for_traps(self, player: int) -> List[int]:
-        """
-        Check for common Connect Four trap setups that lead to forced wins.
-        IMPROVED to be more selective and accurate in trap detection.
-        
-        Args:
-            player: The player to check traps for
-            
-        Returns:
-            List[int]: List of columns to play to set up or block traps
-        """
-        trap_moves = []
-        opponent = 3 - player
-        board = self.board
-        num_rows, num_cols = board.shape
-        win_condition = self.game_board.win_condition  # Get win condition from game board
-        
-        # Special handling for early game center control
-        empty_count = np.count_nonzero(board == 0)
-        total_slots = num_rows * num_cols
-        is_early_game = empty_count > total_slots * 0.8  # First few moves (80% empty)
-        
-        # In early game, prioritize center and adjacent columns
-        if is_early_game:
-            # Center column is highly valuable
-            center_col = num_cols // 2
-            if self.game_board.is_valid_location(center_col):
-                if center_col not in trap_moves:
-                    trap_moves.append(center_col)
-            
-            # If opponent has center, control adjacent columns
-            if center_col < num_cols and board[0][center_col] == opponent:
-                for col in [center_col-1, center_col+1]:
-                    if 0 <= col < num_cols and self.game_board.is_valid_location(col) and col not in trap_moves:
-                        trap_moves.append(col)
-        
-        # Find moves that create TWO threats simultaneously (true forks)
-        for col in range(num_cols):
-            if not self.game_board.is_valid_location(col):
-                continue
-                
-            # Simulate placing a piece in this column
-            row = self.game_board.get_next_open_row(col)
-            temp_board = board.copy()
-            temp_game_board = GameBoard(rows=num_rows, cols=num_cols, win_condition=win_condition)
-            temp_game_board.board = temp_board
-            temp_board[row][col] = player
-            
-            # Count potential winning lines after this move
-            threats = 0
-            
-            # Check horizontal threats
-            for c in range(max(0, col-(win_condition-1)), min(col+1, num_cols-(win_condition-1))):
-                if c + win_condition <= num_cols:
-                    window = [temp_board[row][c+i] for i in range(win_condition)]
-                    if window.count(player) == win_condition - 1 and window.count(0) == 1:
-                        threats += 1
-                    
-            # Check vertical threats
-            if row >= win_condition - 1:
-                window = [temp_board[row-i][col] for i in range(win_condition)]
-                if window.count(player) == win_condition - 1 and window.count(0) == 1:
-                    threats += 1
-                    
-            # Check diagonal threats
-            for i in range(win_condition):
-                # Positive diagonal
-                r = row - i
-                c = col - i
-                if r >= 0 and r <= num_rows - win_condition and c >= 0 and c <= num_cols - win_condition:
-                    window = [temp_board[r+j][c+j] for j in range(win_condition)]
-                    if window.count(player) == win_condition - 1 and window.count(0) == 1:
-                        threats += 1
-                
-                # Negative diagonal
-                r = row - i
-                c = col + i
-                if r >= 0 and r <= num_rows - win_condition and c >= win_condition - 1 and c < num_cols:
-                    if all(0 <= r+j < num_rows and 0 <= c-j < num_cols for j in range(win_condition)):
-                        window = [temp_board[r+j][c-j] for j in range(win_condition)]
-                        if window.count(player) == win_condition - 1 and window.count(0) == 1:
-                            threats += 1
-            
-            # Only consider as trap if it creates MULTIPLE threats
-            if threats >= 2 and col not in trap_moves:
-                trap_moves.append(col)
-                
-        return trap_moves
-        
-    def check_diagonal_connectivity(self, player: int) -> int:
-        """
-        Specifically check for diagonal connections and potential winning patterns.
-        
-        Args:
-            player: The player to check for
-            
-        Returns:
-            int: Score representing strength of diagonal connections
-        """
-        board = self.board
-        num_rows, num_cols = board.shape
-        score = 0
-        opponent = 3 - player
-        win_condition = self.game_board.win_condition
-        
-        # Check all possible diagonal directions
-        # Positive diagonals (/)
-        for row in range(num_rows - (win_condition - 1)):
-            for col in range(num_cols - (win_condition - 1)):
-                window = [board[row+i][col+i] for i in range(win_condition)]
-                # Give points for our pieces, subtract for opponent pieces
-                player_count = window.count(player)
-                opponent_count = window.count(opponent)
-                empty_count = window.count(0)
-                
-                # Only consider if there are no opponent pieces (can't win otherwise)
-                if opponent_count == 0:
-                    if player_count == win_condition - 1 and empty_count == 1:
-                        score += 5  # Near win
-                    elif player_count == win_condition - 2 and empty_count == 2:
-                        score += 2  # Building threat
-                    elif player_count == 1 and empty_count == win_condition - 1:
-                        score += 0.5  # Starting position
-                
-                # Also check opponent's diagonal threats
-                if player_count == 0:
-                    if opponent_count == win_condition - 1 and empty_count == 1:
-                        score -= 6  # Near loss - weigh higher than our threats
-                    elif opponent_count == win_condition - 2 and empty_count == 2:
-                        score -= 3  # Opponent building threat
-        
-        # Negative diagonals (\)
-        for row in range(win_condition - 1, num_rows):
-            for col in range(num_cols - (win_condition - 1)):
-                window = [board[row-i][col+i] for i in range(win_condition)]
-                # Give points for our pieces, subtract for opponent pieces
-                player_count = window.count(player)
-                opponent_count = window.count(opponent)
-                empty_count = window.count(0)
-                
-                # Only consider if there are no opponent pieces (can't win otherwise)
-                if opponent_count == 0:
-                    if player_count == win_condition - 1 and empty_count == 1:
-                        score += 5  # Near win
-                    elif player_count == win_condition - 2 and empty_count == 2:
-                        score += 2  # Building threat
-                    elif player_count == 1 and empty_count == win_condition - 1:
-                        score += 0.5  # Starting position
-                
-                # Also check opponent's diagonal threats
-                if player_count == 0:
-                    if opponent_count == win_condition - 1 and empty_count == 1:
-                        score -= 6  # Near loss - weigh higher than our threats
-                    elif opponent_count == win_condition - 2 and empty_count == 2:
-                        score -= 3  # Opponent building threat
-        
-        return score
-        
-    def detect_advanced_patterns(self, player: int) -> Tuple[List[int], float]:
-        """
-        Detect advanced Connect Four patterns beyond basic threats.
-        
-        Args:
-            player: The player to check patterns for
-            
-        Returns:
-            Tuple[List[int], float]: List of recommended moves and pattern score
-        """
-        opponent = 3 - player
-        moves = []
-        pattern_score = 0
-        board = self.board
-        num_rows, num_cols = board.shape
-        win_condition = self.game_board.win_condition  # Get win condition from game board
-        
-        # Check for double-threat creation (placing a piece that creates TWO three-in-a-rows)
-        for col in range(num_cols):
-            if not self.game_board.is_valid_location(col):
-                continue
-                
-            # Find where the piece would land
-            row = self.game_board.get_next_open_row(col)
-            
-            # Create a temporary board with this move
-            temp_board = board.copy()
-            temp_board[row][col] = player
-            
-            # Count threats in all directions
-            threat_count = 0
-            
-            # Check horizontal threats
-            for c in range(max(0, col-(win_condition-1)), min(col+1, num_cols-(win_condition-1))):
-                if c + win_condition <= num_cols:
-                    window = [temp_board[row][c+i] for i in range(win_condition)]
-                    if window.count(player) == win_condition - 1 and window.count(0) == 1:
-                        threat_count += 1
-            
-            # Check vertical threats
-            if row >= win_condition - 1:
-                window = [temp_board[row-i][col] for i in range(win_condition)]
-                if window.count(player) == win_condition - 1 and window.count(0) == 1:
-                    threat_count += 1
-            
-            # Check diagonal threats
-            # Positive diagonal
-            for i in range(win_condition):
-                r = row - i
-                c = col - i
-                if r >= 0 and r <= num_rows - win_condition and c >= 0 and c <= num_cols - win_condition:
-                    window = [temp_board[r+j][c+j] for j in range(win_condition)]
-                    if window.count(player) == win_condition - 1 and window.count(0) == 1:
-                        threat_count += 1
-            
-            # Negative diagonal
-            for i in range(win_condition):
-                r = row - i
-                c = col + i
-                if r >= 0 and r <= num_rows - win_condition and c >= win_condition - 1 and c < num_cols:
-                    if all(0 <= r+j < num_rows and 0 <= c-j < num_cols for j in range(win_condition)):
-                        window = [temp_board[r+j][c-j] for j in range(win_condition)]
-                        if window.count(player) == win_condition - 1 and window.count(0) == 1:
-                            threat_count += 1
-            
-            # If this creates multiple threats, it's a very strong move
-            if threat_count >= 2:
-                moves.append(col)
-                pattern_score += threat_count * 7  # Valuable move
-        
-        return moves, pattern_score
 
 class DPAgent:
     """
@@ -392,7 +19,8 @@ class DPAgent:
     to compute optimal policies for the current game state.
     """
     
-    def __init__(self, discount_factor: float = 0.9995, epsilon: float = 0.001, horizon: int = 18, beam_width: int = 800):
+    def __init__(self, discount_factor: float = 0.9995, epsilon: float = 0.001, horizon: int = 18, beam_width: int = 800,
+                 use_heuristics: bool = True, use_search: bool = True):
         """
         Initialize the DP agent.
         
@@ -401,11 +29,17 @@ class DPAgent:
             epsilon: The convergence threshold for value iteration
             horizon: The maximum depth to explore from current state
             beam_width: The maximum number of states to consider at each depth
+            use_heuristics: Toggle for positional‑pattern heuristic rewards
         """
+        self.use_search = use_search
         self.gamma = discount_factor
+        if not use_heuristics and discount_factor > 0.99:
+            print("Warning: High γ combined with simple rewards may slow convergence; "
+                  "consider setting γ≈0.9.")
         self.epsilon = epsilon
         self.horizon = horizon
         self.beam_width = beam_width
+        self.use_heuristics = use_heuristics  # toggle for positional‑pattern rewards
         self.V0 = 0.0  # Initial value for all states
         self.values = {}  # State -> value mapping (V(s))
         self.policy = {}  # State -> action mapping
@@ -420,6 +54,19 @@ class DPAgent:
         self.states_explored = 0
         self.iterations_performed = 0
         self.visits = {}  # Count state visits for improved exploration
+
+        # ------------------------------------------------------------------
+        # Instrumentation counters
+        # ------------------------------------------------------------------
+        self.vi_sweeps: int = 0           # value-iteration sweeps in last run
+        self.last_vi_delta: float = 0.0   # final delta from last value_iteration
+        self.policy_updates_last: int = 0 # how many states changed action last extraction
+
+        # ------------------------------------------------------------------
+        # Global state bookkeeping (used in DP‑only mode)
+        # ------------------------------------------------------------------
+        self.all_states: Set[GameState] = set()
+        self.state_index: Dict[GameState, int] = {}
         
         # Initialize the agent
         self.reset()
@@ -440,29 +87,91 @@ class DPAgent:
     def set_beam_width(self, beam_width: int) -> None:
         """Set the maximum number of states to consider at each depth."""
         self.beam_width = beam_width
+
+    def set_use_heuristics(self, flag: bool) -> None:
+        """Enable or disable positional‑pattern heuristic rewards."""
+        self.use_heuristics = flag
     
+    def set_use_search(self, flag: bool) -> None:
+        """Enable/disable progressive beam search and defensive overrides."""
+        self.use_search = flag
+
     def _initialize_state(self, state: GameState) -> None:
         """Initialize a new state with default values and policy."""
         if state not in self.values:
             self.values[state] = self.V0
             self.policy[state] = None  # No policy yet for this state
             
-    def choose_action(self, game_state: Dict) -> int:
+    def print_linear_system(self, game_state: Dict) -> None:
         """
-        Choose an action based on online policy iteration from the current state.
-        Always runs the MDP process first, then validates the decision with defensive checks.
+        Compute and print the Bellman candidates for the given game state using the Bellman optimality backup.
+        This can be called regardless of whose turn it is.
         
         Args:
             game_state: The current state of the game
-            
-        Returns:
-            int: The column index where the agent wants to place its piece
         """
-        start_time = time.time()
+        try:
+            # Convert dictionary game state to GameState
+            state = self._convert_to_game_state(game_state)
+            current_player = state.turn + 1
+            player_perspective = "MAXIMIZE" if current_player == 2 else "MINIMIZE"
+
+            print(f"\n=== BELLMAN CANDIDATES FOR PLAYER {current_player} ({player_perspective}) ===")
+
+            candidates = self.get_bellman_candidates(state)
+            if not candidates:
+                print("No valid actions.")
+                return
+
+            for action in sorted(candidates):
+                c = candidates[action]
+                print(f"Column {action+1}: "
+                      f"R={c['reward']:+6.2f}  "
+                      f"+ γ·V(s')={self.gamma:.4f}·{c['future_value']:+6.2f}  "
+                      f"⇒ Q={c['q_value']:+7.2f}"
+                      f"{'  (terminal)' if c['is_terminal'] else ''}")
+
+            # Pick best/min action purely from these Q values
+            if current_player == 2:     # maximize
+                best = max(candidates.items(), key=lambda kv: kv[1]['q_value'])[0]
+            else:                       # minimize
+                best = min(candidates.items(), key=lambda kv: kv[1]['q_value'])[0]
+
+            print(f"→ Best action under one‑step backup: Column {best+1}")
+            print("=== END CANDIDATES ===\n")
+        except Exception as e:
+            # If there's an error, print a more graceful message
+            print(f"\n=== BELLMAN CANDIDATES FOR PLAYER {state.turn + 1} ===")
+            print(f"Unable to generate Bellman candidates: {str(e)}")
+            print(f"=== END CANDIDATES ===\n")
         
+    def choose_action(self, game_state: Dict) -> int:
+        """Choose an action based on the current state."""
         # Convert dictionary game state to our GameState object
         state = self._convert_to_game_state(game_state)
+        
+        # Check if this is a small board (toy problem)
+        num_rows, num_cols = state.board.shape
+        is_toy_problem = (num_rows <= 3 and num_cols <= 4)
+        
+        if is_toy_problem:
+            print("Detected small board - using linear algebra approach")
+            policy, values = self.run_toy_problem(num_rows, num_cols, horizon=3)
+            if state in policy:
+                return policy[state]
+            # Fall back to regular method if policy doesn't have this state
+        
+        # Existing choose_action logic...
+        # (rest of the method unchanged)
+        start_time = time.time()
+        
         valid_actions = state.get_valid_actions()
+        current_player = state.turn + 1  # Convert from 0/1 to 1/2
+        player_perspective = "MAXIMIZE" if current_player == 2 else "MINIMIZE"
+        
+        print(f"\nAgent is Player {current_player} (perspective: {player_perspective})")
+        if not self.use_search:
+            print("  [search extras DISABLED – DP‑only mode]")
         
         # If no valid actions, return -1 (should never happen in a normal game)
         if not valid_actions:
@@ -484,32 +193,36 @@ class DPAgent:
         #         return 2
                 
         # PHASE 1: STRATEGIC SEARCH - Always perform full policy iteration first
-        print("Performing online policy iteration with progressive beam widening...")
-        self.online_policy_iteration_progressive(state)
+        if self.use_search:
+            print("Performing online policy iteration with progressive beam widening...")
+            self.online_policy_iteration_progressive(state)
+        else:
+            print("Performing pure DP planning...")
+            self._dp_plan_simple(state)
         
         # Get the best action from the policy
         mdp_action = self.policy.get(state, None)
         
-        # Print linear system for this state
-        print(f"\n=== LINEAR SYSTEM FOR PLAYER {state.turn + 1} ===")
-        coeff = self.get_linear_system(state)
-        print("Coefficient matrix:")
-        print(coeff)
-        print(f"=== END LINEAR SYSTEM FOR PLAYER {state.turn + 1} ===\n")
+        # Print linear system for this state - now using the separate method
+        self.print_linear_system(game_state)
         
         # If no policy available, evaluate actions directly
         if mdp_action is None or mdp_action not in valid_actions:
             print("Policy not available for current state. Evaluating actions directly...")
             mdp_action = self._evaluate_actions(state, valid_actions)
+        else:
+            print(f"MDP policy chose column {mdp_action+1}")
             
         # PHASE 2: DEFENSIVE CHECK - Validate the MDP's decision
         # This is now a safety check AFTER the MDP has run, not a replacement for it
-        defensive_action = self._defensive_search(state)
+        defensive_action = self._defensive_search(state) if self.use_search else None
         final_action = defensive_action if defensive_action is not None else mdp_action
         
         # If the defensive action overrides the MDP's choice, log this
         if defensive_action is not None and defensive_action != mdp_action:
             print(f"MDP chose column {mdp_action+1}, but defensive check overrode with column {defensive_action+1}")
+        else:
+            print(f"Final decision: column {final_action+1}")
         
         end_time = time.time()
         print(f"Decision took {end_time - start_time:.3f} seconds. Explored {self.states_explored} states.")
@@ -548,6 +261,24 @@ class DPAgent:
         if blocking_moves:
             print(f"Blocking opponent's immediate win at column {blocking_moves[0]+1}")
             return blocking_moves[0]
+            
+        # 3. Check for traps and advanced patterns
+        trap_moves = state.check_for_traps(current_player)
+        if trap_moves:
+            print(f"Setting up trap at column {trap_moves[0]+1}")
+            return trap_moves[0]
+            
+        # 4. Check for opponent traps to block
+        opponent_traps = state.check_for_traps(opponent)
+        if opponent_traps:
+            print(f"Blocking opponent's trap setup at column {opponent_traps[0]+1}")
+            return opponent_traps[0]
+            
+        # 5. Check for advanced patterns
+        advanced_moves, pattern_score = state.detect_advanced_patterns(current_player)
+        if advanced_moves and pattern_score > 10:  # Only use if pattern score is significant
+            print(f"Found advanced pattern, playing column {advanced_moves[0]+1} (score: {pattern_score})")
+            return advanced_moves[0]
         
         # No critical defensive action found - use the MDP's decision
         return None
@@ -737,10 +468,15 @@ class DPAgent:
             int: The best action
         """
         best_action = None
-        best_value = float('-inf')
-        action_values = {}  # For debugging
-        
         current_player = state.turn + 1  # Convert from 0/1 to 1/2
+        
+        # Initialize best value based on player perspective
+        if current_player == 2:  # Player 2 maximizes
+            best_value = float('-inf')
+        else:  # Player 1 minimizes
+            best_value = float('inf')
+            
+        action_values = {}  # For debugging
         
         # Check for immediate winning move
         for action in valid_actions:
@@ -823,26 +559,15 @@ class DPAgent:
             
             action_values[action] = value
             
-            if value > best_value:
-                best_value = value
-                best_action = action
-        
-        # Apply a small random perturbation to the action values to create variety
-        if random.random() < 0.03:  # Reduced exploration probability from 5% to 3%
-            exploration_coef = 0.05  # Reduced from 0.1 to 0.05
-            exploration_values = {}
-            for action in valid_actions:
-                if action in action_values:
-                    # Add random noise to value
-                    noise = random.uniform(-exploration_coef, exploration_coef)
-                    exploration_values[action] = action_values[action] + noise
-                    
-            # Find best action after adding noise
-            if exploration_values:
-                best_action_with_noise = max(exploration_values, key=exploration_values.get)
-                if best_action_with_noise != best_action:
-                    print(f"Exploration: changing action from {best_action+1} to {best_action_with_noise+1}")
-                    best_action = best_action_with_noise
+            # Update best action based on player perspective
+            if current_player == 2:  # Player 2 maximizes
+                if value > best_value:
+                    best_value = value
+                    best_action = action
+            else:  # Player 1 minimizes
+                if value < best_value:
+                    best_value = value
+                    best_action = action
         
         # Log the action evaluations
         print(f"Action values: {', '.join([f'{a+1}: {v:.2f}' for a, v in sorted(action_values.items())])}")
@@ -873,7 +598,8 @@ class DPAgent:
             best_action = random.choice(valid_actions)
             print(f"Choosing random action: {best_action+1}")
         else:
-            print(f"Choosing best action: column {best_action+1} with value {action_values.get(best_action, 'N/A'):.2f}")
+            perspective = "maximize" if current_player == 2 else "minimize"
+            print(f"Choosing best action: column {best_action+1} with value {action_values.get(best_action, 'N/A'):.2f} ({perspective})")
         
         return best_action
     
@@ -905,6 +631,8 @@ class DPAgent:
         Args:
             states: Set of states to evaluate
         """
+        # Reset sweep counter for this run
+        self.vi_sweeps = 0
         self.iterations_performed += 1
         iteration = 0
         max_iterations = 100  # Allow more iterations for better convergence
@@ -914,6 +642,8 @@ class DPAgent:
         
         while True:
             iteration += 1
+            # Count each full sweep through all states
+            self.vi_sweeps += 1
             delta = 0
             
             # Copy values for synchronous updates
@@ -930,8 +660,13 @@ class DPAgent:
                 if not valid_actions:
                     continue
                 
-                # Find the max Q-value for this state
-                max_value = float('-inf')
+                # Initialize optimal value based on player perspective
+                current_player = state.turn + 1  # Convert from 0/1 to 1/2
+                
+                if current_player == 2:  # Player 2 maximizes
+                    optimal_value = float('-inf')
+                else:  # Player 1 minimizes
+                    optimal_value = float('inf')
                 
                 # Try each action and find the best one
                 for action in valid_actions:
@@ -949,15 +684,20 @@ class DPAgent:
                     # Compute Q-value
                     value = reward + self.gamma * next_value
                     
-                    # Update max value
-                    if value > max_value:
-                        max_value = value
+                    # Update optimal value based on player perspective
+                    if current_player == 2:  # Player 2 maximizes
+                        if value > optimal_value:
+                            optimal_value = value
+                    else:  # Player 1 minimizes
+                        if value < optimal_value:
+                            optimal_value = value
                 
                 # Update state value if we found a better value
-                if max_value != float('-inf'):
+                if (current_player == 2 and optimal_value != float('-inf')) or \
+                   (current_player == 1 and optimal_value != float('inf')):
                     old_value = old_values.get(state, self.V0)
-                    self.values[state] = max_value
-                    value_change = abs(old_value - max_value)
+                    self.values[state] = optimal_value
+                    value_change = abs(old_value - optimal_value)
                     delta = max(delta, value_change)
             
             # Save delta for convergence tracking
@@ -978,6 +718,8 @@ class DPAgent:
             if iteration % 10 == 0:
                 print(f"Value iteration: {iteration} iterations, delta={delta:.6f}")
         
+        # Save final delta for stats
+        self.last_vi_delta = delta
         # Print some debugging info about convergence
         if len(last_deltas) > 1:
             avg_delta = sum(last_deltas) / len(last_deltas)
@@ -990,6 +732,8 @@ class DPAgent:
         Args:
             states: Set of states to extract policy for
         """
+        # Reset counter for this run
+        self.policy_updates_last = 0
         policy_updates = 0
         
         # Update policy for all states
@@ -1005,7 +749,14 @@ class DPAgent:
             
             # Find the best action
             best_action = None
-            best_value = float('-inf')
+            current_player = state.turn + 1  # Convert from 0/1 to 1/2
+            
+            # Initialize best value differently based on player
+            if current_player == 2:  # Player 2 maximizes
+                best_value = float('-inf')
+            else:  # Player 1 minimizes
+                best_value = float('inf')
+                
             action_values = {}  # For debugging
             
             for action in valid_actions:
@@ -1024,16 +775,22 @@ class DPAgent:
                 # Store this action's value for debugging
                 action_values[action] = value
                 
-                # Update best action if this is better
-                if value > best_value:
-                    best_value = value
-                    best_action = action
+                # Update best action if this is better, based on player perspective
+                if current_player == 2:  # Player 2 maximizes
+                    if value > best_value:
+                        best_value = value
+                        best_action = action
+                else:  # Player 1 minimizes
+                    if value < best_value:
+                        best_value = value
+                        best_action = action
             
             # Update policy for this state
             old_action = self.policy.get(state)
             if best_action is not None and best_action != old_action:
                 self.policy[state] = best_action
                 policy_updates += 1
+                self.policy_updates_last += 1
                 
                 # Debug output for significant policy changes
                 if old_action is not None:
@@ -1065,23 +822,40 @@ class DPAgent:
         board = state.board
         num_rows, num_cols = board.shape
         current_player = state.turn + 1  # Player 1 or 2
-        last_player = 3 - current_player  # Previous player
+        # Note: current_player here is who will move next,
+        # but for terminal checks we look at absolute winners (1 or 2).
         
         # Get win condition from the game board
         win_condition = state.game_board.win_condition
-        
-        # First check if last player won (current player loses)
-        if state.game_board.winning_move(last_player):
-            reward = -200.0  # Very strong negative reward for losing
+
+        # ------------------------------------------------------------------
+        # Terminal‑state checks – symmetric, zero‑sum
+        #   • Player 2 (the maximizer) wins  →  +200
+        #   • Player 1 (the minimizer) wins  →  −200
+        #   • Draw                            →   0
+        # ------------------------------------------------------------------
+        if state.game_board.winning_move(2):
+            reward = 200.0
             self.eval_cache[state_hash] = reward
             return reward
-        
-        # Check for draw
+
+        if state.game_board.winning_move(1):
+            reward = -200.0
+            self.eval_cache[state_hash] = reward
+            return reward
+
         if state.game_board.tie_move():
-            reward = 0.0  # Neutral reward for draw
+            reward = 0.0
             self.eval_cache[state_hash] = reward
             return reward
-        
+
+        # If heuristics are disabled, return a small step cost to encourage
+        # faster wins but keep the scale modest.
+        if not self.use_heuristics:
+            reward = -0.01
+            self.eval_cache[state_hash] = reward
+            return reward
+
         # Calculate positional reward based on pieces and threats
         reward = 0.0
         
@@ -1090,6 +864,7 @@ class DPAgent:
         two_in_a_row = self._count_threats(board, current_player, win_condition-2, win_condition)
         
         # Check for opponent threats
+        last_player = 3 - current_player
         opponent_three = self._count_threats(board, last_player, win_condition-1, win_condition)
         opponent_two = self._count_threats(board, last_player, win_condition-2, win_condition)
         
@@ -1271,11 +1046,50 @@ class DPAgent:
         
         return GameState(board, turn, game_board)
 
-    # Linear system methods - preserved for future implementation
     def compute_bellman_equation(self, state: GameState) -> Dict:
-        """Compute the Bellman equation for a state."""
-        # This method can be implemented later for linear system analysis
-        return {}
+        """
+        Compute the complete Bellman equations for a state, including full action values.
+        This shows exactly how the value of each action is calculated.
+        
+        Args:
+            state: The current game state
+            
+        Returns:
+            Dict: Dictionary with action values and their components
+        """
+        valid_actions = state.get_valid_actions()
+        if not valid_actions:
+            return {}
+            
+        result = {}
+        current_player = state.turn + 1  # 1 or 2
+        
+        # For each action, compute value components
+        for action in valid_actions:
+            next_state = state.apply_action(action)
+            
+            # Get immediate reward
+            immediate_reward = self._get_reward(next_state)
+            
+            # Get future value
+            if next_state.is_terminal():
+                future_value = 0.0  # Terminal states have no future
+            else:
+                future_value = self.values.get(next_state, self.V0)
+                
+            # Calculate total value
+            total_value = immediate_reward + self.gamma * future_value
+            
+            # Store all components
+            result[action] = {
+                'immediate_reward': immediate_reward,
+                'future_value': future_value,
+                'discount_factor': self.gamma,
+                'total_value': total_value,
+                'perspective': 'MAXIMIZE' if current_player == 2 else 'MINIMIZE'
+            }
+            
+        return result
         
     def analyze_linear_system(self, state: GameState) -> None:
         """Analyze the linear system for a state."""
@@ -1287,22 +1101,410 @@ class DPAgent:
         valid_actions = state.get_valid_actions()
         num_actions = len(valid_actions)
         
+        # Handle case where there are no valid actions
+        if num_actions == 0:
+            # Return a 1x1 matrix with a 0
+            return np.zeros((1, 1))
+        
+        # Ensure we have at least num_actions+1 columns (one for each action plus reward)
+        min_columns = max(num_actions, 1) + 1
+        
         # map all known states to a unique index
-        coeff = np.zeros((num_actions, len(self.values) + 1))
+        state_values = list(self.values.keys())
+        state_ind = {s: idx for idx, s in enumerate(state_values)}
+        
+        # Make sure the coefficient matrix has enough columns
+        # Either the number of states in values + 1, or min_columns, whichever is larger
+        coeff_columns = max(len(self.values) + 1, min_columns)
+        coeff = np.zeros((num_actions, coeff_columns))
         
         for i, action in enumerate(valid_actions):
             next_state = state.apply_action(action)
             reward = self._get_reward(next_state)
             
+            # Set diagonal element to 1.0
             coeff[i, i] = 1.0
             
             if next_state.is_terminal():
                 coeff[i, -1] = reward
             else:
-                state_ind = {state: idx for idx, state in enumerate(self.values.keys())}
-                if next_state not in state_ind:
+                # If next_state is in our value function mapping, include it in equation
+                if next_state in state_ind:
                     coeff[i, state_ind[next_state]] = -self.gamma
-                    
+                
                 coeff[i, -1] = reward
                 
         return coeff
+
+    def enumerate_reachable_states(self, start_state, horizon=3):
+        """Enumerate all states reachable from start_state within horizon moves."""
+        all_states = set([start_state])
+        frontier = [start_state]
+        
+        for depth in range(horizon):
+            new_frontier = []
+            for state in frontier:
+                if state.is_terminal():
+                    continue
+                    
+                for action in state.get_valid_actions():
+                    next_state = state.apply_action(action)
+                    if next_state not in all_states:
+                        all_states.add(next_state)
+                        new_frontier.append(next_state)
+            
+            frontier = new_frontier
+            if not frontier:  # No more states to explore
+                break
+            
+        return all_states
+
+    # ------------------------------------------------------------------
+    # Build / refresh a canonical ordering of states for DP helpers
+    # ------------------------------------------------------------------
+    def _set_global_state_index(self, states: Set[GameState]) -> None:
+        """
+        Record a stable mapping from each state to a column index.
+        All DP helpers should reference `self.state_index` instead of
+        building their own local dictionaries.
+        """
+        self.all_states = set(states)
+        self.state_index = {s: i for i, s in enumerate(states)}
+
+    # ------------------------------------------------------------------
+    # Pure dynamic‑programming planner (no beam search, no defensive extras)
+    # ------------------------------------------------------------------
+    def _dp_plan_simple(self, root: GameState) -> None:
+        """Populate self.values and self.policy using plain DP only."""
+        # Enumerate all states reachable within the given horizon
+        states = self.enumerate_reachable_states(root, self.horizon)
+
+        # Record a global ordering for later helpers
+        self._set_global_state_index(states)
+
+        # Initialize value table and seed terminal‑state rewards
+        for s in states:
+            self._initialize_state(s)
+            if s.is_terminal():
+                self.values[s] = self._get_reward(s)
+
+        # Classic value‑iteration followed by greedy policy extraction
+        self.value_iteration(states)
+        self.policy_extraction(states)
+        # Show instrumentation summary
+        self.print_stats("DP‑only summary")
+    # ------------------------------------------------------------------
+    # Pretty‑print instrumentation after a DP run
+    # ------------------------------------------------------------------
+    def print_stats(self, label: str = "DP run stats") -> None:
+        """Print key instrumentation counters in a single line."""
+        total_states = len(self.all_states)
+        print(f"{label}: "
+              f"|S|={total_states}, "
+              f"VI sweeps={self.vi_sweeps}, "
+              f"final Δ={self.last_vi_delta:.6f}, "
+              f"policy updates={self.policy_updates_last}")
+
+    def visualize_policy_matrices(self, policy, states):
+        """Visualize transition and reward matrices for a given policy."""
+        n = len(states)
+        index = {s:i for i,s in enumerate(states)}
+        P = np.zeros((n,n))
+        R = np.zeros(n)
+        
+        # Build matrices
+        for s in states:
+            i = index[s]
+            if s in policy and policy[s] is not None:
+                a = policy[s]
+                next_state = s.apply_action(a)
+                R[i] = self._get_reward(next_state)
+                if not next_state.is_terminal():
+                    if next_state in index:  # Only include states in our set
+                        j = index[next_state]
+                        P[i,j] = 1.0
+        
+        # Print matrices in a readable format
+        print(f"\nTransition matrix P (size: {P.shape}):")
+        print(P)
+        print(f"\nReward vector R (size: {R.shape}):")
+        print(R)
+        
+        # Calculate and display V = (I - γP)^-1 R
+        try:
+            I = np.eye(n)
+            V = np.linalg.solve(I - self.gamma*P, R)
+            print("\nValue vector V:")
+            print(V)
+        except np.linalg.LinAlgError as e:
+            print(f"Error solving linear system: {e}")
+
+    def policy_iteration_linear(self, start_state, horizon=3):
+        """
+        Perform policy iteration using direct linear algebra.
+        
+        Args:
+            start_state: Starting state
+            horizon: Maximum depth to explore
+        
+        Returns:
+            Tuple of (policy, values)
+        """
+        # Step 1: Enumerate all reachable states
+        states = self.enumerate_reachable_states(start_state, horizon)
+        print(f"Enumerated {len(states)} states within horizon {horizon}")
+        
+        # Step 2: Initialize policy randomly
+        policy = {}
+        for s in states:
+            if not s.is_terminal():
+                valid_actions = s.get_valid_actions()
+                if valid_actions:
+                    policy[s] = random.choice(valid_actions)
+        
+        # Step 3: Policy iteration
+        stable = False
+        iteration = 0
+        while not stable and iteration < 20:  # Limit iterations
+            iteration += 1
+            
+            # Policy evaluation using linear algebra
+            values = self.policy_evaluate_linear(policy, states)
+            
+            # Policy improvement
+            stable = True
+            for s in states:
+                if s.is_terminal() or s not in policy:
+                    continue
+                    
+                old_action = policy[s]
+                
+                # Find best action
+                best_action = None
+                current_player = s.turn + 1  # Convert from 0/1 to 1/2
+                
+                if current_player == 2:  # Maximize
+                    best_value = float('-inf')
+                else:  # Minimize
+                    best_value = float('inf')
+                    
+                for a in s.get_valid_actions():
+                    next_s = s.apply_action(a)
+                    reward = self._get_reward(next_s)
+                    
+                    if next_s.is_terminal():
+                        value = reward
+                    else:
+                        value = reward + self.gamma * values.get(next_s, 0.0)
+                    
+                    if (current_player == 2 and value > best_value) or \
+                       (current_player == 1 and value < best_value):
+                        best_value = value
+                        best_action = a
+                
+                if best_action != old_action:
+                    policy[s] = best_action
+                    stable = False
+            
+            print(f"Iteration {iteration}: {'Stable' if stable else 'Changed'}")
+        
+        # Visualize final matrices
+        self.visualize_policy_matrices(policy, states)
+        
+        return policy, values
+
+    def policy_evaluate_linear(self, policy, states):
+        """Evaluate a policy using direct linear algebra (solving V = (I-γP)^(-1)R)."""
+        # Prefer the global mapping if we're evaluating that exact set
+        if set(states) == self.all_states:
+            index = self.state_index
+        else:
+            index = {s: i for i, s in enumerate(states)}
+        n = len(states)
+        P = np.zeros((n, n))
+        R = np.zeros(n)
+
+        for s in states:
+            i = index[s]
+            if s in policy and policy[s] is not None:
+                a = policy[s]
+                sprime = s.apply_action(a)
+                R[i] = self._get_reward(sprime)
+                if not sprime.is_terminal() and sprime in index:
+                    j = index[sprime]
+                    P[i, j] = 1.0   # deterministic
+
+        # Solve V = (I - γP)^(-1)R directly
+        V = np.linalg.solve(np.eye(n) - self.gamma * P, R)
+        return {s: V[index[s]] for s in states}
+
+    # ------------------------------------------------------------------
+    # Utility: deterministic transition matrix Pπ and reward vector Rπ
+    # ------------------------------------------------------------------
+    def build_PR_matrices(self, policy: Dict['GameState', int], states: Set['GameState']):
+        """
+        Return (P, R) for a deterministic policy π restricted to `states`.
+
+        • P is |S|×|S| with 1.0 in column j if T(s,π(s)) = sʹ_j  
+        • R is length‑|S|, the immediate reward of taking π(s) in s.
+        """
+        # Re‑use the global mapping when applicable
+        if set(states) == self.all_states:
+            index = self.state_index
+        else:
+            index = {s: i for i, s in enumerate(states)}
+
+        n = len(states)
+        P = np.zeros((n, n))
+        R = np.zeros(n)
+
+        for s in states:
+            i = index[s]
+            if s in policy and policy[s] is not None:
+                a = policy[s]
+                sprime = s.apply_action(a)
+                R[i] = self._get_reward(sprime)
+                if sprime in index:
+                    P[i, index[sprime]] = 1.0
+        return P, R
+
+    def run_toy_problem(self, rows=3, cols=4, horizon=3):
+        """Run a small toy problem using linear algebra approach."""
+        # --- Temporarily turn off positional heuristics for this clean experiment ---
+        original_heuristic_flag = self.use_heuristics
+        self.use_heuristics = False
+        # Create a small initial board
+        board = np.zeros((rows, cols))
+        game_board = GameBoard(rows=rows, cols=cols)
+        start_state = GameState(board, 0, game_board)
+        
+        print(f"\n=== RUNNING TOY PROBLEM: {rows}x{cols} board with horizon {horizon} ===")
+        print("Initial board:")
+        print(board)
+        
+        # Completely disable beam search, caching, and other optimizations
+        original_beam = self.beam_width
+        original_horizon = self.horizon
+        self.beam_width = float('inf')  # No beam search limitation
+        self.horizon = horizon
+        
+        # Clear existing values and policy
+        self.values = {}
+        self.policy = {}
+        
+        # Run our linear algebra policy iteration
+        policy, values = self.policy_iteration_linear(start_state, horizon)
+        
+        # Print the policy for the starting state
+        if start_state in policy:
+            best_action = policy[start_state]
+            print(f"\nBest action for starting state: {best_action+1}")
+            print(f"Value: {values.get(start_state, 'Unknown')}")
+        else:
+            print("\nNo policy found for starting state")
+
+        # Register the full state set for later helpers
+        self._set_global_state_index(set(values.keys()))
+        
+        # ---------------------------------------------------------------------------
+        # Restore original heuristic setting, beam_width, and horizon
+        self.beam_width = original_beam
+        self.horizon = original_horizon
+        self.use_heuristics = original_heuristic_flag
+        
+        return policy, values
+
+    def compare_with_minimax(self, state, depth=3):
+        """Compare our linear algebra solution with minimax."""
+        print("\n=== COMPARING WITH MINIMAX ===")
+        
+        # Run minimax
+        minimax_value, minimax_action = self._minimax(state, depth, True)
+        
+        # Run our linear policy iteration
+        policy, values = self.policy_iteration_linear(state, depth)
+        linear_value = values.get(state, 0.0)
+        linear_action = policy.get(state, None)
+        
+        print(f"Minimax: action={minimax_action+1}, value={minimax_value}")
+        print(f"Linear: action={linear_action+1 if linear_action is not None else None}, value={linear_value}")
+        
+        return minimax_action == linear_action
+        
+    def _minimax(self, state, depth, maximizing):
+        """Simple minimax implementation for comparison."""
+        if depth == 0 or state.is_terminal():
+            return self._get_reward(state), None
+        
+        valid_actions = state.get_valid_actions()
+        if not valid_actions:
+            return 0, None
+            
+        best_action = None
+        if maximizing:
+            value = float('-inf')
+            for action in valid_actions:
+                next_state = state.apply_action(action)
+                child_value, _ = self._minimax(next_state, depth-1, False)
+                if child_value > value:
+                    value = child_value
+                    best_action = action
+        else:
+            value = float('inf')
+            for action in valid_actions:
+                next_state = state.apply_action(action)
+                child_value, _ = self._minimax(next_state, depth-1, True)
+                if child_value < value:
+                    value = child_value
+                    best_action = action
+                    
+        return value, best_action
+    def get_bellman_candidates(self, state: GameState) -> Dict[int, Dict[str, float]]:
+        """
+        For each valid action a in state s, return a dictionary with the pieces
+        needed for the Bellman optimality backup
+
+            Q(s,a) = R(s,a) + gamma * V(s')
+
+        where s' is the successor reached by taking action a.
+
+        The returned mapping is:
+            action_index -> {
+                'reward':          R(s,a),
+                'future_value':    V(s'),
+                'q_value':         R(s,a) + gamma * V(s'),
+                'is_terminal':     bool
+            }
+        """
+        candidates: Dict[int, Dict[str, float]] = {}
+        valid_actions = state.get_valid_actions()
+        if not valid_actions:           # no legal moves
+            return candidates
+
+        for action in valid_actions:
+            next_state = state.apply_action(action)
+
+            # Ensure the global index contains this successor
+            if next_state not in self.state_index:
+                self.state_index[next_state] = len(self.state_index)
+                self.all_states.add(next_state)
+
+            # immediate reward
+            reward = self._get_reward(next_state)
+
+            # look‑ahead value
+            if next_state.is_terminal():
+                future_v = 0.0
+            else:
+                future_v = self.values.get(next_state, self.V0)
+
+            q_val = reward + self.gamma * future_v
+
+            candidates[action] = {
+                'reward': reward,
+                'future_value': future_v,
+                'q_value': q_val,
+                'is_terminal': next_state.is_terminal()
+            }
+
+        return candidates
