@@ -1316,7 +1316,7 @@ class DPAgent:
         """Print key instrumentation counters in a single line."""
         total_states = len(self.all_states)
         print(f"{label}: "
-              f"|S|={total_states}, "
+              f"\n|S|={total_states}, "
               f"VI sweeps={self.vi_sweeps}, "
               f"final Δ={self.last_vi_delta:.6f}, "
               f"policy updates={self.policy_updates_last}")
@@ -1325,7 +1325,7 @@ class DPAgent:
         """Pretty-print (P, R) and the solved value vector for a policy.
 
         • policy is a dict {state -> chosen action}
-        • states is the finite set S we are analysing (order irrelevant).
+        • states is the finite set S we are analyzing (order irrelevant).
 
         The function builds deterministic transition matrix P_π and reward
         vector R_π, then prints:
