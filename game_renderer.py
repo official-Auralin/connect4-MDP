@@ -13,6 +13,24 @@ from config import BLACK, BLUE, RED, WHITE, YELLOW
 from events import GameOver, MouseHoverEvent, PieceDropEvent, bus
 from game_data import GameData
 
+# at the very top of game_renderer.py
+import sys
+
+class ConsoleBuffer:
+    def __init__(self):
+        self.lines: list[str] = []
+
+    def write(self, txt: str):
+        for line in txt.splitlines():
+            self.lines.append(line)
+
+    def flush(self):
+        pass
+
+# instantiate and redirect stdout
+console = ConsoleBuffer()
+sys.stdout = console
+
 
 @bus.on("piece:drop")
 def on_piece_drop(event: PieceDropEvent):
@@ -49,34 +67,48 @@ class GameRenderer:
         screen.blit(self.label, (40, 10))
         self.screen = screen
         self.game_data = game_data
-        self.stats = {}
+
+        self.console = console
+
+        self.font = pygame.font.Font(None, 20)
+        line_h = self.font.get_linesize()
+        self.line_height = line_h
+        self.scroll_index = max(0, len(console.lines) - self.line_height)
 
         pygame.display.set_caption("Connect Four | Mayank Singh")
         pygame.display.update()
 
-    def draw_stats_panel(self, stats):
-        import game_data
-        font = pygame.font.SysFont(None, 24)
-        x_offset = self.game_data.width - self.game_data.panel_size+ 20
-        y = 20
+    def draw_stats_panel(self):
+        panel_x = self.game_data.width - self.game_data.panel_size
+        panel_w = self.game_data.panel_size
+        panel_h = self.game_data.height
 
-        def render_line(label, value):
-            nonlocal y
-            text_surface = font.render(f"{label}: {value}", True, (255, 255, 255))
-            self.screen.blit(text_surface, (x_offset, y))
-            y += 28
+        # 1) clear panel
+        self.screen.fill(BLACK, (panel_x, 0, panel_w, panel_h))
 
-        render_line("State ID", stats.get("state_id", "-"))
-        render_line("Action", stats.get("action", "-"))
-        render_line("Reward", stats.get("reward", "-"))
+        # 2) figure out how many lines fit
+        visible_lines = panel_h // self.line_height
+        total = len(console.lines)
+        max_start = max(0, total - visible_lines)
+        # clamp scroll
+        self.scroll_index = min(self.scroll_index, max_start)
 
-        V = stats.get("V", [])
-        if V:
-            render_line("V[:5]", ", ".join(f"{v:.2f}" for v in V[:5]))
+        # 3) draw the slice from top of panel
+        for i, line in enumerate(console.lines[self.scroll_index:self.scroll_index + visible_lines]):
+            txt = self.font.render(line, True, WHITE)
+            y = 0 + i * self.line_height
+            self.screen.blit(txt, (panel_x + 8, y))
 
-        eigenvalues = stats.get("eigenvalues", [])
-        if eigenvalues:
-            render_line("λ[0]", f"{eigenvalues[0]:.4f}")
+        # 4) full‐height scrollbar
+        track_w = 6
+        track_x = panel_x + panel_w - track_w - 4
+        pygame.draw.rect(self.screen, (40, 40, 40),
+                         (track_x, 0, track_w, panel_h))
+        if total > visible_lines:
+            thumb_h = panel_h * (visible_lines / total)
+            thumb_y = (panel_h - thumb_h) * (self.scroll_index / max_start)
+            pygame.draw.rect(self.screen, (200, 200, 200),
+                             (track_x, thumb_y, track_w, thumb_h))
 
     @bus.on("mouse:hover")
     def on_mouse_hover(self, event: MouseHoverEvent):
@@ -250,13 +282,13 @@ class GameRenderer:
         y = height - 140
         
         # Draw game information
-        game_mode_text = f"Game Mode: {self.game_data.game_mode.upper()}"
+        """game_mode_text = f"Game Mode: {self.game_data.game_mode.upper()}"
         board_size_text = f"Board Size: {self.game_data.cols}x{self.game_data.rows}"
         win_condition_text = f"Win Condition: {self.game_data.win_condition} in a row"
         
         self.screen.blit(font.render(game_mode_text, True, WHITE), (x_offset, y))
         self.screen.blit(font.render(board_size_text, True, WHITE), (x_offset, y + 30))
-        self.screen.blit(font.render(win_condition_text, True, WHITE), (x_offset, y + 60))
-        
-        self.draw_stats_panel(self.stats)
+        self.screen.blit(font.render(win_condition_text, True, WHITE), (x_offset, y + 60))"""
+
+        self.draw_stats_panel()
         pygame.display.update()

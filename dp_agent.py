@@ -1316,7 +1316,7 @@ class DPAgent:
         """Print key instrumentation counters in a single line."""
         total_states = len(self.all_states)
         print(f"{label}: "
-              f"|S|={total_states}, "
+              f"\n|S|={total_states}, "
               f"VI sweeps={self.vi_sweeps}, "
               f"final Δ={self.last_vi_delta:.6f}, "
               f"policy updates={self.policy_updates_last}")
