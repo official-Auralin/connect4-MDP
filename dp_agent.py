@@ -238,9 +238,18 @@ class DPAgent:
         self.horizon = 12  # Use larger horizon to ensure full state space
         self.use_heuristics = False  # Pure rewards without positional bonuses
         
-        # Run policy iteration on the full state space
-        policy, values = self.solve_game_with_linear_algebra(state)
-        
+        # For smaller boards (e.g., 3x4 or smaller), use full state enumeration
+        if rows <= 3 and cols <= 4:
+            # Run policy iteration on the full state space
+            policy, values = self.solve_game_with_linear_algebra(state)
+            print(f"[full linear-algebra] enumerated {len(values)} states")
+        else:
+            # For larger boards, use beam search with linear algebra
+            print(f"[beam search] using progressive beam search for {rows}x{cols} board")
+            # Restore beam width for larger boards
+            self.beam_width = original_beam
+            policy, values = self.beam_search_linear(state)
+            
         # Get the action for current state
         action = policy.get(state, None)
         
@@ -248,18 +257,6 @@ class DPAgent:
         self.beam_width = original_beam
         self.horizon = original_horizon
         self.use_heuristics = original_heuristics
-        
-        print(f"[full linear-algebra] enumerated {len(values)} states")
-            
-        # For larger boards, we previously used beam search, but now we use the linear algebra approach
-        # for all boards regardless of size
-        # (Below code is commented out as we now use only the linear algebra approach)
-        """
-        else:
-            # For larger boards, use the standard planning approach
-            self.plan_linear(state)  # Uses beam search and limited horizon
-            action = self.policy.get(state, None)
-        """
             
         # Fallback: if something went wrong, choose a random legal move
         if action is None or action not in state.get_valid_actions():
@@ -708,107 +705,6 @@ class DPAgent:
         self.cache_hits = 0
         self.cache_misses = 0
         
-    def value_iteration(self, states: Set[GameState]) -> None:
-        """
-        Evaluate the current policy by computing V(s) for all states in the set.
-        
-        Args:
-            states: Set of states to evaluate
-        """
-        # Reset sweep counter for this run
-        self.vi_sweeps = 0
-        self.iterations_performed += 1
-        iteration = 0
-        max_iterations = 100  # Allow more iterations for better convergence
-        
-        # Initialize debug information
-        last_deltas = []
-        
-        while True:
-            iteration += 1
-            # Count each full sweep through all states
-            self.vi_sweeps += 1
-            delta = 0
-            
-            # Copy values for synchronous updates
-            old_values = self.values.copy()
-            
-            # Update each state's value
-            for state in states:
-                # Skip terminal states (they already have fixed values)
-                if state.is_terminal():
-                    continue
-                
-                # Get valid actions
-                valid_actions = state.get_valid_actions()
-                if not valid_actions:
-                    continue
-                
-                # Initialize optimal value based on player perspective
-                current_player = state.turn + 1  # Convert from 0/1 to 1/2
-                
-                if current_player == 2:  # Player 2 maximizes
-                    optimal_value = float('-inf')
-                else:  # Player 1 minimizes
-                    optimal_value = float('inf')
-                
-                # Try each action and find the best one
-                for action in valid_actions:
-                    next_state = state.apply_action(action)
-                    
-                    # Get reward and next state value
-                    reward = self._get_reward(next_state)
-                    
-                    # Use fixed reward for terminal states, otherwise use value function
-                    if next_state.is_terminal():
-                        next_value = reward
-                    else:
-                        next_value = old_values.get(next_state, self.V0)
-                    
-                    # Compute Q-value
-                    value = reward + self.gamma * next_value
-                    
-                    # Update optimal value based on player perspective
-                    if current_player == 2:  # Player 2 maximizes
-                        if value > optimal_value:
-                            optimal_value = value
-                    else:  # Player 1 minimizes
-                        if value < optimal_value:
-                            optimal_value = value
-                
-                # Update state value if we found a better value
-                if (current_player == 2 and optimal_value != float('-inf')) or \
-                   (current_player == 1 and optimal_value != float('inf')):
-                    old_value = old_values.get(state, self.V0)
-                    self.values[state] = optimal_value
-                    value_change = abs(old_value - optimal_value)
-                    delta = max(delta, value_change)
-            
-            # Save delta for convergence tracking
-            last_deltas.append(delta)
-            if len(last_deltas) > 5:
-                last_deltas.pop(0)
-            
-            # Check for convergence - only if we've done enough iterations
-            if iteration > 10 and delta < self.epsilon:
-                break
-                
-            # Limit iterations
-            if iteration >= max_iterations:
-                print(f"Value iteration stopped after {iteration} iterations (delta={delta:.6f})")
-                break
-            
-            # Print progress periodically
-            if iteration % 10 == 0:
-                self._vprint(f"Value iteration: {iteration} iterations, delta={delta:.6f}")
-        
-        # Save final delta for stats
-        self.last_vi_delta = delta
-        # Print some debugging info about convergence
-        if len(last_deltas) > 1:
-            avg_delta = sum(last_deltas) / len(last_deltas)
-            self._vprint(f"Value iteration converged after {iteration} iterations. Final delta={delta:.6f}, avg={avg_delta:.6f}")
-    
     def policy_extraction(self, states: Set[GameState]) -> None:
         """
         Extract the optimal policy from the current value function.
@@ -1254,29 +1150,6 @@ class DPAgent:
         self.state_index = {s: i for i, s in enumerate(states)}
 
     # ------------------------------------------------------------------
-    # Pure dynamic‑programming planner (no beam search, no defensive extras)
-    # ------------------------------------------------------------------
-    def _dp_plan_simple(self, root: GameState) -> None:
-        """Populate self.values and self.policy using plain DP only."""
-        # Enumerate all states reachable within the given horizon
-        states = self.enumerate_reachable_states(root, self.horizon)
-
-        # Record a global ordering for later helpers
-        self._set_global_state_index(states)
-
-        # Initialize value table and seed terminal‑state rewards
-        for s in states:
-            self._initialize_state(s)
-            if s.is_terminal():
-                self.values[s] = self._get_reward(s)
-
-        # Classic value‑iteration followed by greedy policy extraction
-        self.value_iteration(states)
-        self.policy_extraction(states)
-        # Show instrumentation summary
-        self.print_stats("DP‑only summary")
-    
-    # ------------------------------------------------------------------
     # Prepare and then print Bellman table for an arbitrary position
     # ------------------------------------------------------------------
     def analyze_position(self, game_state_or_state) -> None:
@@ -1600,3 +1473,232 @@ class DPAgent:
             }
 
         return candidates
+
+    def beam_search_linear(self, state: GameState) -> None:
+        """
+        Perform beam search to intelligently explore a subset of states,
+        then solve using linear algebra.
+        
+        Args:
+            state: The current game state
+            
+        Returns:
+            Tuple of (policy, values) - The computed policy and value function
+        """
+        start_time = time.time()
+        
+        # Track this state as visited
+        self.visits[state] = self.visits.get(state, 0) + 1
+        
+        print(f"Starting beam search from state: {state.get_key()}")
+        
+        # Create a set to track all explored states
+        all_states = {state}
+        
+        # Store states by depth for beam search
+        states_by_depth = {0: [state]}
+        
+        # Configure progressive beam widths - wider at shallower depths
+        progressive_beam_widths = {}
+        for d in range(1, self.horizon + 1):
+            # Start with full beam width and gradually reduce
+            if d <= 4:
+                progressive_beam_widths[d] = self.beam_width  # Full width for early depths
+            elif d <= 10:
+                progressive_beam_widths[d] = int(self.beam_width * 0.75)  # 75% for medium depths
+            else:
+                progressive_beam_widths[d] = int(self.beam_width * 0.5)  # 50% for deep searches
+        
+        # Explore up to horizon depth
+        for depth in range(1, self.horizon + 1):
+            current_beam_width = progressive_beam_widths[depth]
+            states_by_depth[depth] = []
+            
+            # Consider all states from previous depth
+            parent_count = 0
+            for parent_state in states_by_depth[depth-1]:
+                parent_count += 1
+                # Skip if this is a terminal state
+                if parent_state.is_terminal():
+                    continue
+                
+                # Get valid actions for this state
+                valid_actions = parent_state.get_valid_actions()
+                
+                # Try all valid actions
+                for action in valid_actions:
+                    # Get resulting state
+                    next_state = parent_state.apply_action(action)
+                    
+                    # Initialize state if new
+                    if next_state not in all_states:
+                        self._initialize_state(next_state)
+                        all_states.add(next_state)
+                        self.states_explored += 1
+                    
+                    # Calculate immediate reward for this state
+                    reward = self._get_reward(next_state)
+                    
+                    # For terminal states, just set the value and don't explore further
+                    if next_state.is_terminal():
+                        # Terminal states get their direct reward value
+                        self.values[next_state] = reward
+                    else:
+                        # Add to next depth states
+                        states_by_depth[depth].append(next_state)
+            
+            if parent_count == 0:
+                print(f"Warning: No parent states at depth {depth-1}")
+                
+            # Apply beam search - keep only the best beam_width states
+            if len(states_by_depth[depth]) > current_beam_width:
+                # Calculate UCB-style values for better exploration
+                exploration_values = {}
+                for state in states_by_depth[depth]:
+                    base_value = self.values.get(state, self.V0)
+                    
+                    # Add exploration bonus for less-visited states
+                    visit_count = self.visits.get(state, 0)
+                    if visit_count == 0:
+                        exploration_bonus = 2.0  # High bonus for never-visited states
+                    else:
+                        exploration_bonus = 1.0 / math.sqrt(visit_count)
+                    
+                    # Check if this state contains immediate threats
+                    current_player = state.turn + 1
+                    opponent = 3 - current_player
+                    
+                    # CRITICAL IMMEDIATE THREATS - never prune these
+                    if state.check_for_immediate_threat(current_player):
+                        exploration_bonus += 10000.0  # Extremely high bonus for immediate wins
+                    
+                    if state.check_for_immediate_threat(opponent):
+                        exploration_bonus += 5000.0  # Very high bonus for blocking opponent wins
+                    
+                    # Additional patterns - high bonus but not as critical
+                    # Strategically important states get a significant bonus
+                    
+                    # Add bonus for center control
+                    num_rows, num_cols = state.board.shape
+                    center_col = num_cols // 2
+                    center_pieces = sum(1 for row in range(num_rows) if row < num_rows and state.board[row][center_col] == current_player)
+                    exploration_bonus += center_pieces * 50.0
+                    
+                    # Add diagonal pattern detection
+                    diagonal_score = state.check_diagonal_connectivity(current_player)
+                    if diagonal_score > 0:
+                        exploration_bonus += diagonal_score * 20.0
+                    
+                    # Moves that set up forks (multiple threats)
+                    trap_moves = state.check_for_traps(current_player)
+                    if trap_moves:
+                        exploration_bonus += 100.0
+                    
+                    # Combined value for sorting
+                    exploration_values[state] = base_value + exploration_bonus
+                
+                # Sort states by exploration-adjusted value
+                sorted_states = sorted(
+                    states_by_depth[depth],
+                    key=lambda x: exploration_values.get(x, float('-inf')),
+                    reverse=True
+                )
+                
+                # Print some top and bottom values for debugging
+                if len(sorted_states) > 5:
+                    top_states = sorted_states[:3]
+                    bottom_states = sorted_states[-2:]
+                    print(f"  Top states: {[(s.get_key(), exploration_values[s]) for s in top_states]}")
+                    print(f"  Bottom states: {[(s.get_key(), exploration_values[s]) for s in bottom_states]}")
+                
+                # Keep only current_beam_width best states
+                states_by_depth[depth] = sorted_states[:current_beam_width]
+                
+                # Mark these states as visited for future exploration
+                for state in states_by_depth[depth]:
+                    self.visits[state] = self.visits.get(state, 0) + 1
+            
+            print(f"Depth {depth}: Exploring {len(states_by_depth[depth])} states (beam width: {current_beam_width}, total: {self.states_explored})")
+            
+            # If we didn't add any new states at this depth, we can stop exploring
+            if len(states_by_depth[depth]) == 0:
+                print(f"No new states to explore at depth {depth}, stopping exploration")
+                break
+        
+        # Combine all explored states for policy iteration
+        states_to_evaluate = set()
+        for depth in states_by_depth:
+            states_to_evaluate.update(states_by_depth[depth])
+        
+        # Create a mapping of all states to global indices
+        self._set_global_state_index(states_to_evaluate)
+        
+        # Initialize policy with random valid actions for non-terminal states
+        policy = {}
+        for s in states_to_evaluate:
+            if not s.is_terminal():
+                valid_actions = s.get_valid_actions()
+                if valid_actions:
+                    policy[s] = random.choice(valid_actions)
+        
+        # Run linear algebra policy iteration
+        print(f"Running policy iteration on {len(states_to_evaluate)} states using linear algebra")
+        
+        # Policy iteration with linear algebra
+        stable = False
+        iteration = 0
+        values = {}
+        max_iterations = 20  # Limit iterations for performance
+        
+        while not stable and iteration < max_iterations:
+            iteration += 1
+            
+            # Policy evaluation using linear algebra
+            values = self.policy_evaluate_linear(policy, states_to_evaluate)
+            
+            # Policy improvement
+            stable = True
+            for s in states_to_evaluate:
+                if s.is_terminal() or not s.get_valid_actions():
+                    continue
+                    
+                old_action = policy.get(s)
+                
+                # Find best action
+                best_action = None
+                current_player = s.turn + 1  # Convert from 0/1 to 1/2
+                
+                if current_player == 2:  # Maximize
+                    best_value = float('-inf')
+                else:  # Minimize
+                    best_value = float('inf')
+                    
+                for a in s.get_valid_actions():
+                    next_s = s.apply_action(a)
+                    reward = self._get_reward(next_s)
+                    
+                    if next_s.is_terminal():
+                        value = reward
+                    else:
+                        value = reward + self.gamma * values.get(next_s, 0.0)
+                    
+                    if (current_player == 2 and value > best_value) or \
+                       (current_player == 1 and value < best_value):
+                        best_value = value
+                        best_action = a
+                
+                if best_action != old_action:
+                    policy[s] = best_action
+                    stable = False
+            
+            print(f"Policy iteration {iteration}: {'Stable' if stable else 'Changed'}")
+        
+        # Update the agent's policy and values
+        self.policy.update(policy)
+        self.values.update(values)
+        
+        end_time = time.time()
+        print(f"Beam search with linear algebra complete. Explored {len(states_to_evaluate)} states in {end_time - start_time:.2f} seconds.")
+        
+        # Return the policy and values
+        return policy, values
