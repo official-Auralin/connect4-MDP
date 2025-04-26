@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Parameter sweep for DPAgent on a 3×4 board (DP-only mode).
+Parameter sweep for DPAgent on a 3×4 board using linear algebra solution.
 
 Iterates over:
   • gammas   = [0.7, 0.8, 0.9, 0.95]
@@ -8,7 +8,7 @@ Iterates over:
 
 Logs:
   |S|   – number of states enumerated
-  iter  – value-iteration iterations
+  iter  – policy iteration iterations (where applicable)
   time  – wall-clock runtime
 """
 import sys, pathlib
@@ -32,12 +32,12 @@ def run_one(gamma: float, horizon: int) -> None:
     agent.horizon = horizon
 
     t0 = time.perf_counter()
-    agent._dp_plan_simple(root)
+    policy, values = agent.solve_game_with_linear_algebra(root, horizon)
     t1 = time.perf_counter()
 
     num_states = len(agent.all_states)
-    iterations  = agent.iterations_performed
-    elapsed     = t1 - t0
+    iterations = agent.vi_sweeps  # Note: This may be 0 if not using VI
+    elapsed = t1 - t0
 
     print(f"γ={gamma:4.2f}  H={horizon:2d}  "
           f"|S|={num_states:4d}  iter={iterations:3d}  "
@@ -48,7 +48,7 @@ def main():
     gammas   = [0.7, 0.8, 0.9, 0.95]
     horizons = [2, 3, 4, 5, 6]
 
-    print("Parameter sweep (DP-only mode, 3×4 board)")
+    print("Parameter sweep (Linear Algebra mode, 3×4 board)")
     for g, h in itertools.product(gammas, horizons):
         run_one(g, h)
 

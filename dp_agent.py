@@ -1600,28 +1600,3 @@ class DPAgent:
             }
 
         return candidates
-        
-    # DEPRECATED: Kept for reference but renamed to indicate it's no longer the primary method
-    def run_toy_problem(self, rows=3, cols=4, horizon=12):
-        """DEPRECATED: Use solve_game_with_linear_algebra instead."""
-        # Create a small initial board
-        board = np.zeros((rows, cols))
-        game_board = GameBoard(rows=rows, cols=cols)
-        start_state = GameState(board, 0, game_board)
-        
-        print(f"\n=== RUNNING TOY PROBLEM: {rows}x{cols} board with horizon {horizon} ===")
-        print("Initial board:")
-        print(board)
-        
-        # Call the new method
-        policy, values = self.solve_game_with_linear_algebra(start_state, horizon)
-        
-        # Print the policy for the starting state (for backward compatibility)
-        if start_state in policy:
-            best_action = policy[start_state]
-            print(f"\nBest action for starting state: {best_action+1}")
-            print(f"Value: {values.get(start_state, 'Unknown')}")
-        else:
-            print("\nNo policy found for starting state")
-            
-        return policy, values
