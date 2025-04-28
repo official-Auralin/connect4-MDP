@@ -43,7 +43,7 @@ class GameData:
         
         self.game_board = GameBoard(rows=self.rows, cols=self.cols)
         self.action = None
-        self.panel_size = 400
+        self.panel_size = 600
         self.sq_size: int = 100
         self.width: int = self.cols * self.sq_size + self.panel_size
         self.height: int = (self.rows + 1) * self.sq_size

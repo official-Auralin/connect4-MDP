@@ -6,6 +6,7 @@ import time
 import math
 from game_board import GameBoard
 from game_state import GameState
+import matplotlib.pyplot as plt
 
 # TODO: put conditionals so that if the board is larger than 3x4 it will use the beam search, limited depth, and heuristics. 
 # TODO: remove depreciated methods.
@@ -17,7 +18,6 @@ from game_state import GameState
 # Module‑wide defaults
 # ------------------------------------------------------------------
 DEFAULT_HORIZON = 12   # change once here to propagate everywhere
-
 """
 --------------------------------------------------------------------------
 Connect‑4 MDP  —  Formal definition & DP‑only pipeline
@@ -129,6 +129,11 @@ class DPAgent:
         self.state_index: Dict[GameState, int] = {}
 
         self.verbose = verbose         # master flag for console output
+
+        #Get the matrix for heatmap in game_render
+        self.reward_matrix = None
+        self.value_matrix = None
+        self.transition_matrix = None
 
         # Initialize the agent
         self.reset()
@@ -1181,6 +1186,8 @@ class DPAgent:
         
         # Print statistics
         self.print_stats("Linear algebra summary")
+
+        self.show_heatmaps()
     
     # ------------------------------------------------------------------
     # Pretty‑print instrumentation after a DP run
@@ -1228,18 +1235,46 @@ class DPAgent:
         print(P)
         print(f"\nReward vector R (size: {R.shape}):")
         print(R)
+        self.reward_matrix = R
 
         try:
             I = np.eye(n)
             V = np.linalg.solve(I - self.gamma * P, R)
             print("\nValue vector V:")
             print(V)
+            self.value_matrix = V
         except np.linalg.LinAlgError as e:
             print(f"Error solving linear system: {e}")
 
         # For quick inspection of the linear system
         print("\nI - γP =")
         print(np.eye(n) - self.gamma * P)
+        self.transition_matrix = np.eye(n) - self.gamma * P
+
+    def show_heatmaps(self):
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+        matrices = {
+            'Reward Matrix (R)': self.reward_matrix,
+            'Value Matrix (V)': self.value_matrix,
+            'Transition Matrix (T)': self.transition_matrix
+        }
+
+        for ax, (title, matrix) in zip(axs, matrices.items()):
+            # Check matrix shape
+            if len(matrix.shape) == 1:
+                # 1D array: try to reshape into a square (optional: sqrt)
+                size = int(np.ceil(np.sqrt(matrix.shape[0])))
+                padded = np.zeros((size * size,))
+                padded[:matrix.shape[0]] = matrix
+                matrix = padded.reshape((size, size))
+
+            im = ax.imshow(matrix, cmap='plasma', interpolation='nearest')
+            ax.set_title(title)
+            plt.colorbar(im, ax=ax)
+
+        plt.tight_layout()
+        plt.show()
 
     def policy_iteration_linear(self, start_state, horizon: int | None = None):
         """
