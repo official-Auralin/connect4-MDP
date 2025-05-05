@@ -1249,15 +1249,25 @@ class DPAgent:
         # For quick inspection of the linear system
         print("\nI - γP =")
         print(np.eye(n) - self.gamma * P)
-        self.transition_matrix = np.eye(n) - self.gamma * P
+
+        n = P.shape[0]
+        A = np.eye(n) - self.gamma * P
+
+        # Method 2: solve A X = I (more numerically stable)
+        A_inv = np.linalg.solve(A, np.eye(n))
+        self.transition_matrix = A_inv
 
     def show_heatmaps(self):
         fig, axs = plt.subplots(1, 3, figsize=(15, 5))
 
+        # Unicode pieces:
+        sup_pi = "\u03C0"  # π
+        sup_minus_one = "\u207B\u00B9"  # ⁻¹
+
         matrices = {
-            'Reward Matrix (R)': self.reward_matrix,
             'Value Matrix (V)': self.value_matrix,
-            'Transition Matrix (T)': self.transition_matrix
+            f'Inverse Transition Matrix (I - γP^{sup_pi}){sup_minus_one}': self.transition_matrix,
+            'Reward Matrix (R)': self.reward_matrix
         }
 
         for ax, (title, matrix) in zip(axs, matrices.items()):
